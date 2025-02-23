@@ -6,6 +6,8 @@ import {
   ConflictResolver,
   Helper,
   Client,
+  InsertOperationHandler,
+  DeleteOperationHandler,
 } from "./classes";
 import {
   YjsID,
@@ -21,6 +23,7 @@ import {
   Delta,
   DeleteDelta,
   Content,
+  IHandlerConfig,
 } from "./iterfaces";
 import { describe, test, expect, beforeEach } from "@jest/globals";
 describe("DocStructure Tests", () => {
@@ -72,6 +75,7 @@ describe("Client Tests", () => {
   let tBuffer: IBufferStore;
   let helper: IHelper;
   let conflictResolver: IConflictResolver;
+  let handlerConfigs: IHandlerConfig[];
 
   beforeEach(() => {
     ydoc = new DocStructure();
@@ -82,16 +86,36 @@ describe("Client Tests", () => {
     tBuffer = new BufferStore();
     helper = new Helper();
     conflictResolver = new ConflictResolver(ydoc);
+    handlerConfigs = [
+      {
+        type: "insert",
+        factory: () =>
+          new InsertOperationHandler(
+            ydoc,
+            conflictResolver,
+            store,
+            stateVector,
+            oBuffer,
+            rBuffer
+          ),
+      },
+      {
+        type: "delete",
+        factory: () =>
+          new DeleteOperationHandler(ydoc, store, stateVector, tBuffer),
+      },
+    ];
+
+
+
     client = new Client(
       1,
       0,
-      ydoc,
       stateVector,
-      store,
       oBuffer,
       rBuffer,
       tBuffer,
-      conflictResolver
+      handlerConfigs
     );
   });
   describe("State Vector Operations", () => {

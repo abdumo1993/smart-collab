@@ -123,7 +123,11 @@ interface IClient extends IOperationHandler {
   clientID: YjsID["clientID"];
   clock: YjsID["clock"];
   applyOps(ops: Delta[]): void;
+}
 
+interface IHandlerConfig {
+  type: Delta["type"];
+  factory: () => IOperationHandler;
 }
 // client conponents
 
@@ -158,4 +162,5 @@ export {
   IHelper,
   IClient,
   StringContent,
+  IHandlerConfig,
 };

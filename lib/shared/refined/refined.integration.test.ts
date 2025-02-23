@@ -6,6 +6,8 @@ import {
   ConflictResolver,
   Helper,
   Client,
+  InsertOperationHandler,
+  DeleteOperationHandler,
 } from "./classes";
 import {
   YjsID,
@@ -22,6 +24,7 @@ import {
   DeleteDelta,
   Content,
   StringContent,
+  IHandlerConfig,
 } from "./iterfaces";
 import { describe, test, expect, beforeEach } from "@jest/globals";
 
@@ -35,6 +38,7 @@ describe("Integration Tests", () => {
   let tBuffer: IBufferStore;
   let helper: IHelper;
   let conflictResolver: IConflictResolver;
+  let handlerConfigs: IHandlerConfig[];
 
   beforeEach(() => {
     ydoc = new DocStructure();
@@ -45,16 +49,33 @@ describe("Integration Tests", () => {
     tBuffer = new BufferStore();
     helper = new Helper();
     conflictResolver = new ConflictResolver(ydoc);
+    handlerConfigs = [
+      {
+        type: "insert",
+        factory: () =>
+          new InsertOperationHandler(
+            ydoc,
+            conflictResolver,
+            store,
+            stateVector,
+            oBuffer,
+            rBuffer
+          ),
+      },
+      {
+        type: "delete",
+        factory: () =>
+          new DeleteOperationHandler(ydoc, store, stateVector, tBuffer),
+      },
+    ];
     client = new Client(
       1,
       0,
-      ydoc,
       stateVector,
-      store,
       oBuffer,
       rBuffer,
       tBuffer,
-      conflictResolver
+      handlerConfigs
     );
   });
 
@@ -223,6 +244,7 @@ describe("Multi-Client Conflict Resolution Tests", () => {
   let stores: IOperationStore[];
   let buffers: Array<Array<IBufferStore>>;
   let svs: IStateVectorManager[];
+  let handlerConfigs: IHandlerConfig[];
 
   const clientCount = 3;
 
@@ -245,17 +267,39 @@ describe("Multi-Client Conflict Resolution Tests", () => {
     clients = Array.from({ length: clientCount }, (_, i) => {
       let helper: IHelper = new Helper();
       let conflictResolver: IConflictResolver = new ConflictResolver(ydocs[i]);
+      handlerConfigs = [
+        {
+          type: "insert",
+          factory: () =>
+            new InsertOperationHandler(
+              ydocs[i],
+              conflictResolver,
+              stores[i],
+              svs[i],
+              buffers[i][0],
+              buffers[i][1]
+            ),
+        },
+        {
+          type: "delete",
+          factory: () =>
+            new DeleteOperationHandler(
+              ydocs[i],
+              stores[i],
+              svs[i],
+              buffers[i][2]
+            ),
+        },
+      ];
 
       let client: IClient = new Client(
         i + 1,
         0,
-        ydocs[i],
         svs[i],
-        stores[i],
         buffers[i][0],
         buffers[i][1],
         buffers[i][2],
-        conflictResolver
+        handlerConfigs
       );
       return client;
     });
@@ -433,6 +477,7 @@ describe("Full System Integration Test", () => {
   let stores: IOperationStore[];
   let buffers: Array<Array<IBufferStore>>;
   let svs: IStateVectorManager[];
+  let handlerConfigs: IHandlerConfig[];
 
   const clientCount = 3;
 
@@ -454,18 +499,40 @@ describe("Full System Integration Test", () => {
 
     clients = Array.from({ length: clientCount }, (_, i) => {
       let helper: IHelper = new Helper();
+      handlerConfigs = [
+        {
+          type: "insert",
+          factory: () =>
+            new InsertOperationHandler(
+              ydocs[i],
+              conflictResolver,
+              stores[i],
+              svs[i],
+              buffers[i][0],
+              buffers[i][1]
+            ),
+        },
+        {
+          type: "delete",
+          factory: () =>
+            new DeleteOperationHandler(
+              ydocs[i],
+              stores[i],
+              svs[i],
+              buffers[i][2]
+            ),
+        },
+      ];
       let conflictResolver: IConflictResolver = new ConflictResolver(ydocs[i]);
 
       let client: IClient = new Client(
         i + 1,
         0,
-        ydocs[i],
         svs[i],
-        stores[i],
         buffers[i][0],
         buffers[i][1],
         buffers[i][2],
-        conflictResolver
+        handlerConfigs
       );
       return client;
     });

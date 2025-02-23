@@ -15,6 +15,7 @@ import {
   IDocumentItem,
   IHelper,
   IClient,
+  IHandlerConfig,
 } from "./iterfaces";
 
 // implement buffers
@@ -169,7 +170,10 @@ class ConflictResolver implements IConflictResolver {
   }
 
   private isIdLess(a: YjsID, b: YjsID): boolean {
-    return a.clientID < b.clientID || (a.clientID === b.clientID && a.clock < b.clock);
+    return (
+      a.clientID < b.clientID ||
+      (a.clientID === b.clientID && a.clock < b.clock)
+    );
   }
 }
 
@@ -211,15 +215,16 @@ class Client implements IClient {
   constructor(
     public clientID: number,
     public clock: number,
-    private document: IDocStructure,
+    // private document: IDocStructure,
     private stateVector: IStateVectorManager,
-    private store: IOperationStore,
+    // private store: IOperationStore,
     private oBuffer: IBufferStore,
     private rBuffer: IBufferStore,
     private tBuffer: IBufferStore,
-    private conflictResolver: IConflictResolver
+    // private conflictResolver: IConflictResolver,
+    private handlerConfigs: IHandlerConfig[]
   ) {
-    this.registerOperationHandlers();
+    this.registerOperationHandlers(this.handlerConfigs);
   }
 
   applyOps(ops: Delta[]): void {
@@ -253,29 +258,33 @@ class Client implements IClient {
   revert(op: Delta): Delta {
     throw new Error("Method not implemented.");
   }
-  private registerOperationHandlers(): void {
-    this.operationHandlers.set(
-      "insert",
-      new InsertOperationHandler(
-        this.document,
-        this.conflictResolver,
-        this.store,
-        this.stateVector,
-        this.oBuffer,
-        this.rBuffer
-      )
-    );
-    // other handlers here
+  private registerOperationHandlers(handlerConfigs: IHandlerConfig[]): void {
+    // better OC principle
+    handlerConfigs.forEach(({ type, factory }) => {
+      this.operationHandlers.set(type, factory());
+    });
+    // this.operationHandlers.set(
+    //   "insert",
+    //   new InsertOperationHandler(
+    //     this.document,
+    //     this.conflictResolver,
+    //     this.store,
+    //     this.stateVector,
+    //     this.oBuffer,
+    //     this.rBuffer
+    //   )
+    // );
+    // // other handlers here
 
-    this.operationHandlers.set(
-      "delete",
-      new DeleteOperationHandler(
-        this.document,
-        this.store,
-        this.stateVector,
-        this.tBuffer
-      )
-    );
+    // this.operationHandlers.set(
+    //   "delete",
+    //   new DeleteOperationHandler(
+    //     this.document,
+    //     this.store,
+    //     this.stateVector,
+    //     this.tBuffer
+    //   )
+    // );
   }
 }
 // implement document classes
@@ -311,7 +320,6 @@ class DocStructure implements IDocStructure {
   private areIdsEqual(a: YjsID, b: YjsID): boolean {
     return a.clientID === b.clientID && a.clock === b.clock;
   }
-  
 
   createItem(
     origin: IDocumentItem,
@@ -378,4 +386,6 @@ export {
   ConflictResolver,
   Helper,
   Client,
+  InsertOperationHandler,
+  DeleteOperationHandler,
 };
