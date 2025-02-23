@@ -16,6 +16,7 @@ import {
   IHelper,
   IClient,
   IHandlerConfig,
+  IGarbageCollector,
 } from "./iterfaces";
 
 // implement buffers
@@ -308,6 +309,14 @@ class DocStructure implements IDocStructure {
     this.head.rightOrigin = this.tail;
     this.tail.origin = this.head;
   }
+  traverseAll(callback: (item: IDocumentItem) => void) {
+    let curr: IDocumentItem | null = this.head;
+    while (curr) {
+      callback(curr);
+      curr = curr.rightOrigin;
+    }
+    throw new Error("Method not implemented.");
+  }
   traverse(start: IDocumentItem, target: YjsID): IDocumentItem | null {
     let current: IDocumentItem | null = start;
     while (current) {
@@ -377,6 +386,92 @@ class Helper implements IHelper {
 //   new BufferStore(),
 //   new ConflictResolver(yjs1, new Helper())
 // );
+
+// Garbage Collection logic
+class GarbageCollector implements IGarbageCollector {
+  private peerVectors: Map<YjsID["clientID"], StateVector>;
+  private safeVector: StateVector;
+  // accounting for current client
+  private noOfClients: number = 1;
+
+  constructor(
+    private store: IOperationStore,
+    private document: IDocStructure,
+    private clientID: YjsID["clientID"],
+    private stateVector: IStateVectorManager
+  ) {}
+  getSafeVector(): StateVector | undefined {
+    // if some clients are not accounted
+    if (this.noOfClients > this.peerVectors.size) return;
+    // start with the current value of the current client.
+    this.peerVectors.set(this.clientID, this.stateVector.getVector());
+
+    this.peerVectors.forEach((clientVector) =>  
+      clientVector.forEach((clock, id) => {
+        const curr = this.safeVector.get(id) ?? Infinity;
+        if (clock < curr) {
+          this.safeVector.set(id, clock);
+        }
+      })
+    );
+    return this.safeVector;
+  }
+  collectGarbage(): void {
+    // travers and identify items to be collected and collect them as well as operations.
+    this.document.traverseAll((item) => {
+      if (!this.shouldCollect(item) && this.isReferenced(item)) return;
+      const origin: IDocumentItem = item.origin!;
+      const rightOrigin: IDocumentItem = item.rightOrigin!;
+
+      // unlink from the doc
+      item.origin = null;
+      item.rightOrigin = null;
+      // link the rest of the doc
+      origin.rightOrigin = rightOrigin;
+      rightOrigin.origin = origin;
+    });
+
+    // collect operatons as well.
+    this.store.getAllOps().forEach((op: Delta) => {
+      const { clientID, clock } = op.id;
+      (this.safeVector.get(clientID) ?? 0) >= clock &&
+        this.store.delete(clientID, clock);
+    });
+  }
+
+  private shouldCollect(item: IDocumentItem): boolean {
+    return (
+      item.deleted &&
+      (this.safeVector.get(item.id.clientID) ?? 0) >= item.id.clock
+    );
+  }
+
+  // In GCOperationHandler
+  private isReferenced(item: IDocumentItem): boolean {
+    // Check if any existing items reference this one
+    let hasReferences = false;
+    this.document.traverseAll((current) => {
+      if (
+        current.origin?.id === item.id ||
+        current.rightOrigin?.id === item.id ||
+        (current.content.type === "object" &&
+          Object.values(current.content.value).some(
+            (id) =>
+              id.clientID === item.id.clientID && id.clock === item.id.clock
+          ))
+      ) {
+        hasReferences = true;
+      }
+    });
+    return hasReferences;
+  }
+}
+const g = new GarbageCollector(
+  new Store(),
+  new DocStructure(),
+  1,
+  new StateVectorManager()
+);
 
 export {
   DocStructure,

@@ -103,6 +103,7 @@ interface IDocStructure {
   head: IDocumentItem;
   tail: IDocumentItem;
   traverse(start: IDocumentItem, target: YjsID): IDocumentItem | null;
+  traverseAll(callback: (item: IDocumentItem) => void);
   createItem(
     origin: IDocumentItem,
     op: InsertDelta,
@@ -144,6 +145,11 @@ interface IHelper {
   isIdLess(id1: YjsID, id2: YjsID): boolean;
 }
 
+interface IGarbageCollector {
+  getSafeVector(): StateVector | undefined;
+  collectGarbage(): void;
+}
+
 export {
   YjsID,
   StateVector,
@@ -163,4 +169,5 @@ export {
   IClient,
   StringContent,
   IHandlerConfig,
+  IGarbageCollector,
 };
