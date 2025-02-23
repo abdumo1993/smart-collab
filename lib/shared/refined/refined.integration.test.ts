@@ -44,7 +44,7 @@ describe("Integration Tests", () => {
     rBuffer = new BufferStore();
     tBuffer = new BufferStore();
     helper = new Helper();
-    conflictResolver = new ConflictResolver(ydoc, helper);
+    conflictResolver = new ConflictResolver(ydoc);
     client = new Client(
       1,
       0,
@@ -220,34 +220,43 @@ describe("Integration Tests", () => {
 describe("Multi-Client Conflict Resolution Tests", () => {
   let clients: IClient[];
   let ydocs: IDocStructure[];
+  let stores: IOperationStore[];
+  let buffers: Array<Array<IBufferStore>>;
+  let svs: IStateVectorManager[];
+
   const clientCount = 3;
 
   beforeEach(() => {
     ydocs = [new DocStructure(), new DocStructure(), new DocStructure()];
+
+    stores = [new Store(), new Store(), new Store()];
+
+    buffers = [
+      [new BufferStore(), new BufferStore(), new BufferStore()],
+      [new BufferStore(), new BufferStore(), new BufferStore()],
+      [new BufferStore(), new BufferStore(), new BufferStore()],
+    ];
+    svs = [
+      new StateVectorManager(),
+      new StateVectorManager(),
+      new StateVectorManager(),
+    ];
+
     clients = Array.from({ length: clientCount }, (_, i) => {
-      let stateVector: IStateVectorManager = new StateVectorManager();
-      let store: IOperationStore = new Store();
-      let oBuffer: IBufferStore = new BufferStore();
-      let rBuffer: IBufferStore = new BufferStore();
-      let tBuffer: IBufferStore = new BufferStore();
       let helper: IHelper = new Helper();
-      let conflictResolver: IConflictResolver = new ConflictResolver(
-        ydocs[i],
-        helper
-      );
+      let conflictResolver: IConflictResolver = new ConflictResolver(ydocs[i]);
 
       let client: IClient = new Client(
         i + 1,
         0,
         ydocs[i],
-        stateVector,
-        store,
-        oBuffer,
-        rBuffer,
-        tBuffer,
+        svs[i],
+        stores[i],
+        buffers[i][0],
+        buffers[i][1],
+        buffers[i][2],
         conflictResolver
       );
-
       return client;
     });
   });
@@ -257,7 +266,7 @@ describe("Multi-Client Conflict Resolution Tests", () => {
     const ops: Delta[] = clients.map(
       (client, ind): InsertDelta =>
         ({
-          id: { clientID: client.getClientID(), clock: 1 },
+          id: { clientID: client.clientID, clock: 1 },
           type: "insert",
           content: { type: "text", value: `${content[ind]}` },
           origin: {
@@ -275,11 +284,11 @@ describe("Multi-Client Conflict Resolution Tests", () => {
     clients.forEach((client, idx) => client.applyOps([ops[idx]]));
 
     // Sync all operations across clients
-    clients.forEach((client) => {
+    clients.forEach((client, idx) => {
       clients
         .filter((c) => c !== client)
         .forEach((peer) => {
-          const ops = client.getStore().getAllOps();
+          const ops = stores[idx].getAllOps();
           peer.applyOps(ops);
         });
     });
@@ -365,8 +374,8 @@ describe("Multi-Client Conflict Resolution Tests", () => {
     offlineClient.applyOps([op1, op2]);
     // ydoc1 = []
     // Verify convergence
-    clients.forEach((client) => {
-      const items = traverseDocument(client.document);
+    clients.forEach((client, idx) => {
+      const items = traverseDocument(ydocs[idx]);
       expect(items.map((i) => (i.content as StringContent).value)).toEqual([
         "Z",
         "X",
@@ -375,10 +384,10 @@ describe("Multi-Client Conflict Resolution Tests", () => {
     });
 
     // Verify all buffers are empty
-    clients.forEach((c) => {
-      expect(c.oBuffer.getSize()).toBe(0);
-      expect(c.rBuffer.getSize()).toBe(0);
-      expect(c.tBuffer.getSize()).toBe(0);
+    clients.forEach((c, idx) => {
+      expect(buffers[idx][0].getSize()).toBe(0);
+      expect(buffers[idx][1].getSize()).toBe(0);
+      expect(buffers[idx][2].getSize()).toBe(0);
     });
   });
 });
@@ -391,7 +400,7 @@ function createInsertOp(
 ): InsertDelta {
   return {
     type: "insert",
-    id: { clientID: client.getClientID(), clock: ++client.clock },
+    id: { clientID: client.clientID, clock: ++client.clock },
     content: { type: "text", value },
     origin,
     rightOrigin,
@@ -401,7 +410,7 @@ function createInsertOp(
 function createDeleteOp(client: IClient, itemID: YjsID): DeleteDelta {
   return {
     type: "delete",
-    id: { clientID: client.getClientID(), clock: ++client.clock },
+    id: { clientID: client.clientID, clock: ++client.clock },
     itemID,
   };
 }
@@ -421,15 +430,56 @@ function traverseDocument(ydoc: IDocStructure): IDocumentItem[] {
 describe("Full System Integration Test", () => {
   let clients: IClient[];
   let ydocs: IDocStructure[];
+  let stores: IOperationStore[];
+  let buffers: Array<Array<IBufferStore>>;
+  let svs: IStateVectorManager[];
+
   const clientCount = 3;
 
+  beforeEach(() => {
+    ydocs = [new DocStructure(), new DocStructure(), new DocStructure()];
+
+    stores = [new Store(), new Store(), new Store()];
+
+    buffers = [
+      [new BufferStore(), new BufferStore(), new BufferStore()],
+      [new BufferStore(), new BufferStore(), new BufferStore()],
+      [new BufferStore(), new BufferStore(), new BufferStore()],
+    ];
+    svs = [
+      new StateVectorManager(),
+      new StateVectorManager(),
+      new StateVectorManager(),
+    ];
+
+    clients = Array.from({ length: clientCount }, (_, i) => {
+      let helper: IHelper = new Helper();
+      let conflictResolver: IConflictResolver = new ConflictResolver(ydocs[i]);
+
+      let client: IClient = new Client(
+        i + 1,
+        0,
+        ydocs[i],
+        svs[i],
+        stores[i],
+        buffers[i][0],
+        buffers[i][1],
+        buffers[i][2],
+        conflictResolver
+      );
+      return client;
+    });
+  });
   // Move syncClients here, before the tests
-  const syncClients = (source: IClient, target: IClient) => {
-    const missingOps = source
-      .getStore()
-      .getMissingOps(target.stateVector.getVector());
-    target.applyOps(missingOps);
-    target.stateVector.merge(source.stateVector.getVector());
+  const syncClients = (
+    source: IOperationStore,
+    targetSV: IStateVectorManager,
+    sourceSV: IStateVectorManager,
+    targetClient: IClient
+  ) => {
+    const missingOps = source.getMissingOps(targetSV.getVector());
+    targetClient.applyOps(missingOps);
+    targetSV.merge(sourceSV.getVector());
   };
 
   const getContent = (ydoc: IDocStructure): string => {
@@ -443,36 +493,6 @@ describe("Full System Integration Test", () => {
     }
     return content.join("");
   };
-
-  beforeEach(() => {
-    ydocs = [new DocStructure(), new DocStructure(), new DocStructure()];
-    clients = Array.from({ length: clientCount }, (_, i) => {
-      let stateVector: IStateVectorManager = new StateVectorManager();
-      let store: IOperationStore = new Store();
-      let oBuffer: IBufferStore = new BufferStore();
-      let rBuffer: IBufferStore = new BufferStore();
-      let tBuffer: IBufferStore = new BufferStore();
-      let helper: IHelper = new Helper();
-      let conflictResolver: IConflictResolver = new ConflictResolver(
-        ydocs[i],
-        helper
-      );
-
-      let client: IClient = new Client(
-        i + 1,
-        0,
-        ydocs[i],
-        stateVector,
-        store,
-        oBuffer,
-        rBuffer,
-        tBuffer,
-        conflictResolver
-      );
-
-      return client;
-    });
-  });
 
   test("complete collaborative editing scenario", () => {
     // Phase 1: Initial concurrent edits
@@ -518,13 +538,17 @@ describe("Full System Integration Test", () => {
 
     // Phase 2: State Vector Exchange and Sync
     // Each client gets missing ops from others based on state vectors
-    syncClients(clients[0], clients[1]);
-    syncClients(clients[1], clients[0]);
+    syncClients(stores[0], svs[1], svs[0], clients[1]);
+    syncClients(stores[1], svs[0], svs[1], clients[0]);
+    // syncClients(clients[0], clients[1]);
+    // syncClients(clients[1], clients[0]);
 
     // Phase 3: Client 3 comes online late
     // Client 3 should receive all previous operations
-    syncClients(clients[0], clients[2]);
-    syncClients(clients[1], clients[2]);
+    syncClients(stores[0], svs[2], svs[0], clients[2]);
+    syncClients(stores[1], svs[2], svs[1], clients[2]);
+    // syncClients(clients[0], clients[2]);
+    // syncClients(clients[1], clients[2]);
 
     // Phase 4: Concurrent deletions and insertions
     // Client 1 deletes 'H'
@@ -565,7 +589,8 @@ describe("Full System Integration Test", () => {
     for (let i = 0; i < clientCount; i++) {
       for (let j = 0; j < clientCount; j++) {
         if (i !== j) {
-          syncClients(clients[i], clients[j]);
+          syncClients(stores[i], svs[j], svs[i], clients[j]);
+          // syncClients(clients[i], clients[j]);
         }
       }
     }
@@ -597,17 +622,17 @@ describe("Full System Integration Test", () => {
       [3, 1], // Client 3: 1 insert
     ]);
 
-    clients.forEach((client) => {
+    clients.forEach((client, idx) => {
       expectedStateVector.forEach((clock, clientID) => {
-        expect(client.stateVector.get(clientID)).toBe(clock);
+        expect(svs[idx].get(clientID)).toBe(clock);
       });
     });
 
     // Verify all buffers are empty
-    clients.forEach((client) => {
-      expect(client.oBuffer.getSize()).toBe(0);
-      expect(client.rBuffer.getSize()).toBe(0);
-      expect(client.tBuffer.getSize()).toBe(0);
+    clients.forEach((client, idx) => {
+      expect(buffers[idx][0].getSize()).toBe(0);
+      expect(buffers[idx][1].getSize()).toBe(0);
+      expect(buffers[idx][2].getSize()).toBe(0);
     });
   });
 
@@ -684,8 +709,11 @@ describe("Full System Integration Test", () => {
 
     // Phase 4: Simulate network partition
     // Sync only between clients 1-2 and 2-3, creating partial connectivity
-    syncClients(clients[0], clients[1]);
-    syncClients(clients[1], clients[2]);
+    syncClients(stores[0], svs[1], svs[0], clients[1]);
+    syncClients(stores[1], svs[2], svs[1], clients[2]);
+
+    // syncClients(clients[0], clients[1]);
+    // syncClients(clients[1], clients[2]);
 
     // Phase 5: More concurrent operations during partition
     const partitionOps1: InsertDelta = {
@@ -717,7 +745,9 @@ describe("Full System Integration Test", () => {
     for (let i = 0; i < clientCount; i++) {
       for (let j = 0; j < clientCount; j++) {
         if (i !== j) {
-          syncClients(clients[i], clients[j]);
+          syncClients(stores[i], svs[j], svs[i], clients[j]);
+
+          // syncClients(clients[i], clients[j]);
         }
       }
     }
@@ -770,7 +800,8 @@ describe("Full System Integration Test", () => {
     // Sync all and verify
     for (let i = 0; i < clientCount; i++) {
       for (let j = 0; j < clientCount; j++) {
-        if (i !== j) syncClients(clients[i], clients[j]);
+        if (i !== j) syncClients(stores[i], svs[j], svs[i], clients[j]);
+        // if (i !== j) syncClients(clients[i], clients[j]);
       }
     }
 

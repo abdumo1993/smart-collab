@@ -122,15 +122,8 @@ interface IConflictResolver {
 interface IClient extends IOperationHandler {
   clientID: YjsID["clientID"];
   clock: YjsID["clock"];
-  document: IDocStructure;
-  oBuffer: IBufferStore;
-  rBuffer: IBufferStore;
-  tBuffer: IBufferStore;
-  stateVector: IStateVectorManager;
   applyOps(ops: Delta[]): void;
-  getClientID(): YjsID["clientID"];
-  getClock(): YjsID["clock"];
-  getStore(): IOperationStore;
+
 }
 // client conponents
 

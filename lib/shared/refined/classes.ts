@@ -137,19 +137,19 @@ class DeleteOperationHandler implements IOperationHandler {
 
 // conflict handler
 class ConflictResolver implements IConflictResolver {
-  constructor(private document: IDocStructure, private helper: IHelper) {}
+  constructor(private document: IDocStructure) {}
   // happens only on insert as update is modeled as delete -> insert ops
   resolve(origin: IDocumentItem, op: InsertDelta): IDocumentItem | null {
     let curr: IDocumentItem | null = origin;
     let trueOrigin = origin;
     let actualRightOrigin: IDocumentItem | null = null;
-    while (curr && !this.helper.areIdsEqual(curr.id, op.rightOrigin)) {
-      if (this.helper.isIdLess(curr.id, op.id)) {
+    while (curr && !this.areIdsEqual(curr.id, op.rightOrigin)) {
+      if (this.isIdLess(curr.id, op.id)) {
         trueOrigin = curr;
       }
       curr = curr.rightOrigin;
     }
-    if (!curr || !this.helper.areIdsEqual(curr.id, op.rightOrigin)) {
+    if (!curr || !this.areIdsEqual(curr.id, op.rightOrigin)) {
       return null;
     }
 
@@ -162,6 +162,14 @@ class ConflictResolver implements IConflictResolver {
     trueOrigin.rightOrigin = newItem;
     actualRightOrigin!.origin = newItem;
     return newItem;
+  }
+
+  private areIdsEqual(a: YjsID, b: YjsID): boolean {
+    return a.clientID === b.clientID && a.clock === b.clock;
+  }
+
+  private isIdLess(a: YjsID, b: YjsID): boolean {
+    return a.clientID < b.clientID || (a.clientID === b.clientID && a.clock < b.clock);
   }
 }
 
@@ -203,25 +211,17 @@ class Client implements IClient {
   constructor(
     public clientID: number,
     public clock: number,
-    public document: IDocStructure,
-    public stateVector: IStateVectorManager,
-    public store: IOperationStore,
-    public oBuffer: IBufferStore,
-    public rBuffer: IBufferStore,
-    public tBuffer: IBufferStore,
+    private document: IDocStructure,
+    private stateVector: IStateVectorManager,
+    private store: IOperationStore,
+    private oBuffer: IBufferStore,
+    private rBuffer: IBufferStore,
+    private tBuffer: IBufferStore,
     private conflictResolver: IConflictResolver
   ) {
     this.registerOperationHandlers();
   }
-  getStore(): IOperationStore {
-    return this.store;
-  }
-  getClientID(): YjsID["clientID"] {
-    return this.clientID;
-  }
-  getClock(): YjsID["clock"] {
-    return this.clock;
-  }
+
   applyOps(ops: Delta[]): void {
     while (ops.length > 0) {
       const op = ops.shift()!;
@@ -301,13 +301,17 @@ class DocStructure implements IDocStructure {
   }
   traverse(start: IDocumentItem, target: YjsID): IDocumentItem | null {
     let current: IDocumentItem | null = start;
-    const helper = new Helper();
     while (current) {
-      if (helper.areIdsEqual(current.id, target)) return current;
+      if (this.areIdsEqual(current.id, target)) return current;
       current = current.rightOrigin;
     }
     return null;
   }
+
+  private areIdsEqual(a: YjsID, b: YjsID): boolean {
+    return a.clientID === b.clientID && a.clock === b.clock;
+  }
+  
 
   createItem(
     origin: IDocumentItem,

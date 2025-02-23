@@ -81,7 +81,7 @@ describe("Client Tests", () => {
     rBuffer = new BufferStore();
     tBuffer = new BufferStore();
     helper = new Helper();
-    conflictResolver = new ConflictResolver(ydoc, helper);
+    conflictResolver = new ConflictResolver(ydoc);
     client = new Client(
       1,
       0,
