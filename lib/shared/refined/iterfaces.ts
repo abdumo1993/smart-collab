@@ -35,11 +35,7 @@ interface MarkerContent extends ContentBase {
   length: number;
 }
 
-interface GCContent extends ContentBase {
-  type: "gc";
-  length: number;
-  ids: YjsID[];
-}
+
 
 type Content =
   | StringContent
@@ -47,7 +43,6 @@ type Content =
   | ObjectContent
   | BinaryContent
   | MarkerContent
-  | GCContent;
 
 // operation Types
 
@@ -64,16 +59,9 @@ interface DeleteDelta extends OperationBase {
   type: "delete";
   itemID: YjsID;
 }
-interface UpdateDelta extends OperationBase, ContentBase {
-  type: "update";
-  itemID: YjsID;
-}
-interface GCDelta extends OperationBase {
-  type: "gc";
-  itemIDS: YjsID[];
-}
 
-type Delta = InsertDelta | DeleteDelta | GCDelta;
+
+type Delta = InsertDelta | DeleteDelta ;
 
 // storage interfaces
 
@@ -81,7 +69,7 @@ interface IOperationStore {
   get(clientID: YjsID["clientID"], clock: YjsID["clock"]): Delta | undefined;
   set(clientID: YjsID["clientID"], clock: YjsID["clock"], op: Delta): void;
   delete(clientID: YjsID["clientID"], clock: YjsID["clock"]): boolean;
-  getAllOps(): Delta[];
+  getAllOps(): IterableIterator<Delta>;
   getMissingOps(other: StateVector): Delta[];
 }
 
@@ -141,13 +129,35 @@ interface IStateVectorManager {
 }
 
 interface IHelper {
-  areIdsEqual(id1: YjsID, id2: YjsID): boolean;
-  isIdLess(id1: YjsID, id2: YjsID): boolean;
+  // deprecated methods
+  // areIdsEqual(id1: YjsID, id2: YjsID): boolean;
+  // isIdLess(id1: YjsID, id2: YjsID): boolean;
+  stringifyYjsID(id: YjsID): string;
 }
 
 interface IGarbageCollector {
-  getSafeVector(): StateVector | undefined;
-  collectGarbage(): void;
+    
+    getSafeVector(peerVectors: Map<YjsID["clientID"], StateVector>): StateVector | undefined;
+  collectGarbage(peerVectors: Map<YjsID["clientID"], StateVector>): void;
+}
+
+interface IVectorCalculator {
+  getSafeVector(
+    allVectors: Map<YjsID["clientID"], StateVector>
+  ): StateVector | undefined;
+}
+interface IReferenceAnalyzer {
+  isReferenced(id: YjsID): boolean;
+  registerReference(source: YjsID, target: YjsID): void;
+  removeReferencer(source: YjsID, targets: YjsID[]): void;
+  clear(): void;
+}
+interface IGarbageEngine {
+  collect(safeVector: StateVector, store: IOperationStore): void;
+}
+interface IReferencerItemManager {
+  isReferencer(item: IDocumentItem): boolean;
+  getReferencedItems(sourceItem: IDocumentItem): YjsID[];
 }
 
 export {
@@ -157,7 +167,6 @@ export {
   Delta,
   InsertDelta,
   DeleteDelta,
-  GCDelta,
   IOperationStore,
   IBufferStore,
   IDocStructure,
@@ -170,4 +179,8 @@ export {
   StringContent,
   IHandlerConfig,
   IGarbageCollector,
+  IVectorCalculator,
+  IReferenceAnalyzer,
+  IGarbageEngine,
+  IReferencerItemManager,
 };
