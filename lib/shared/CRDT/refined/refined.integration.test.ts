@@ -28,6 +28,7 @@ import {
 } from "./iterfaces";
 import { describe, test, expect, beforeEach } from "@jest/globals";
 
+
 describe("Integration Tests", () => {
   let client: IClient;
   let ydoc: IDocStructure;
@@ -59,13 +60,14 @@ describe("Integration Tests", () => {
             store,
             stateVector,
             oBuffer,
-            rBuffer
+            rBuffer,
+            helper
           ),
       },
       {
         type: "delete",
         factory: () =>
-          new DeleteOperationHandler(ydoc, store, stateVector, tBuffer),
+          new DeleteOperationHandler(ydoc, store,helper, stateVector, tBuffer),
       },
     ];
     client = new Client(
@@ -75,6 +77,7 @@ describe("Integration Tests", () => {
       oBuffer,
       rBuffer,
       tBuffer,
+      helper,
       handlerConfigs
     );
   });
@@ -193,9 +196,9 @@ describe("Integration Tests", () => {
     expect(store.get(1, 2)).toBeUndefined();
 
     // Verify operation is only in origin buffer
-    expect(oBuffer.get(JSON.stringify(op2.origin))?.[0]).toBe(op2);
+    expect(oBuffer.get(helper.stringifyYjsID(op2.origin))?.[0]).toBe(op2);
 
-    expect(rBuffer.get(JSON.stringify(op2.rightOrigin))?.[0]).toBeUndefined();
+    expect(rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]).toBeUndefined();
 
     // expect(client.rBuffer.size).toBe(0); // Should not be in right buffer yet
 
@@ -206,10 +209,10 @@ describe("Integration Tests", () => {
     expect(store.get(1, 1)).toBeTruthy();
 
     // Now op2 should move from oBuffer to rBuffer
-    expect(oBuffer.get(JSON.stringify(op2.origin))?.[0]).toBeUndefined();
+    expect(oBuffer.get(helper.stringifyYjsID(op2.origin))?.[0]).toBeUndefined();
 
     // don't need to be in right buffer
-    // expect(client.rBuffer.get(JSON.stringify(op2.rightOrigin))?.[0]).toBe(op2);
+    // expect(client.rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]).toBe(op2);
 
     // Apply op3 - should resolve right dependency and finally apply op2
     client.applyOps([op3]);
@@ -220,8 +223,8 @@ describe("Integration Tests", () => {
     expect(store.get(1, 3)).toBeTruthy();
 
     // Verify buffers are empty
-    expect(oBuffer.get(JSON.stringify(op2.origin))?.[0]).toBeUndefined();
-    expect(rBuffer.get(JSON.stringify(op2.rightOrigin))?.[0]).toBeUndefined();
+    expect(oBuffer.get(helper.stringifyYjsID(op2.origin))?.[0]).toBeUndefined();
+    expect(rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]).toBeUndefined();
 
     // Verify correct document structure
     const item1 = ydoc.traverse(ydoc.head, op1.id);
@@ -277,7 +280,8 @@ describe("Multi-Client Conflict Resolution Tests", () => {
               stores[i],
               svs[i],
               buffers[i][0],
-              buffers[i][1]
+              buffers[i][1],
+              helper
             ),
         },
         {
@@ -286,6 +290,7 @@ describe("Multi-Client Conflict Resolution Tests", () => {
             new DeleteOperationHandler(
               ydocs[i],
               stores[i],
+              helper,
               svs[i],
               buffers[i][2]
             ),
@@ -299,6 +304,7 @@ describe("Multi-Client Conflict Resolution Tests", () => {
         buffers[i][0],
         buffers[i][1],
         buffers[i][2],
+        helper,
         handlerConfigs
       );
       return client;
@@ -333,7 +339,7 @@ describe("Multi-Client Conflict Resolution Tests", () => {
         .filter((c) => c !== client)
         .forEach((peer) => {
           const ops = stores[idx].getAllOps();
-          peer.applyOps(ops);
+          peer.applyOps([...ops]);
         });
     });
 
@@ -509,7 +515,8 @@ describe("Full System Integration Test", () => {
               stores[i],
               svs[i],
               buffers[i][0],
-              buffers[i][1]
+              buffers[i][1],
+              helper
             ),
         },
         {
@@ -518,6 +525,7 @@ describe("Full System Integration Test", () => {
             new DeleteOperationHandler(
               ydocs[i],
               stores[i],
+              helper,
               svs[i],
               buffers[i][2]
             ),
@@ -532,6 +540,7 @@ describe("Full System Integration Test", () => {
         buffers[i][0],
         buffers[i][1],
         buffers[i][2],
+        helper,
         handlerConfigs
       );
       return client;

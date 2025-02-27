@@ -106,7 +106,7 @@ class InsertOperationHandler implements IOperationHandler {
     private rBuffer: IBufferStore,
     private helper: IHelper
   ) {}
-  apply(op: InsertDelta): void {
+  apply(op: InsertDelta): InsertDelta | undefined {
     if (!this.stateVectore.isNewOperation(op)) return;
     const origin = this.document.traverse(this.document.head, op.origin);
     if (!origin) {
@@ -123,6 +123,10 @@ class InsertOperationHandler implements IOperationHandler {
     }
     this.store.set(item.id.clientID, item.id.clock, op);
     this.stateVectore.update(op.id.clientID, op.id.clock);
+    const newOP = { ...op };
+    newOP.origin = item.origin!.id;
+    newOP.rightOrigin = item.rightOrigin!.id;
+    return newOP;
   }
   revert(op: Delta): Delta {
     throw new Error("Method not implemented.");
@@ -137,7 +141,7 @@ class DeleteOperationHandler implements IOperationHandler {
     private stateVectore: IStateVectorManager,
     private buffer: IBufferStore
   ) {}
-  apply(op: DeleteDelta): void {
+  apply(op: DeleteDelta): Delta | undefined {
     if (!this.stateVectore.isNewOperation(op)) return;
     const item = this.document.traverse(this.document.head, op.itemID);
     if (!item) {
@@ -245,7 +249,8 @@ class Client implements IClient {
     this.registerOperationHandlers(this.handlerConfigs);
   }
 
-  applyOps(ops: Delta[]): void {
+  applyOps(ops: Delta[]): Delta[] {
+    const items: Delta[] = [];
     while (ops.length > 0) {
       const op = ops.shift()!;
       if (!this.stateVector.isNewOperation(op)) {
@@ -256,7 +261,8 @@ class Client implements IClient {
       const tDependent = this.tBuffer.get(this.helper.stringifyYjsID(op.id));
 
       try {
-        this.apply(op);
+        let newOp = this.apply(op);
+        newOp ? items.push(newOp) : items.push(op);
       } catch (e) {
         console.log(e);
       }
@@ -270,11 +276,12 @@ class Client implements IClient {
         (ops.push(...tDependent),
         this.tBuffer.remove(this.helper.stringifyYjsID(op.id)));
     }
+    return items;
   }
-  apply(op: Delta): void {
+  apply(op: Delta): Delta | undefined {
     const handler = this.operationHandlers.get(op.type);
     if (!handler) throw new Error(`No handler for ${op.type} operations`);
-    handler.apply(op);
+    return handler.apply(op);
   }
   revert(op: Delta): Delta {
     throw new Error("Method not implemented.");
@@ -498,9 +505,11 @@ class GarbageCollector implements IGarbageCollector {
   constructor(
     private safeVectorCalculator: IVectorCalculator,
     private engine: IGarbageEngine,
-    private store: IOperationStore,
+    private store: IOperationStore
   ) {}
-  getSafeVector(peerVectors: Map<YjsID["clientID"], StateVector>): StateVector | undefined {
+  getSafeVector(
+    peerVectors: Map<YjsID["clientID"], StateVector>
+  ): StateVector | undefined {
     // if some clients are not accounted
     if (this.noOfClients > peerVectors.size) return;
     return this.safeVectorCalculator.getSafeVector(peerVectors);
@@ -534,7 +543,7 @@ class GraphReferenceAnalyzer implements IReferenceAnalyzer {
   // clear(): void {
   //   throw new Error("Method not implemented.");
   // }
-  clear() : boolean {
+  clear(): boolean {
     this.references.clear();
     return this.references.size == 0;
   }
@@ -611,7 +620,6 @@ class IncrementalGC implements IGarbageEngine {
         0
       );
   }
-
 
   private processChunk() {
     let processed = 0;
@@ -735,6 +743,4 @@ export {
   GraphReferenceAnalyzer,
   GarbageCollector,
   IncrementalGC,
-
-  
 };

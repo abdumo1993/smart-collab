@@ -101,7 +101,7 @@ interface IDocStructure {
 
 // opration handleres interface
 interface IOperationHandler {
-  apply(op: Delta): void;
+  apply(op: Delta): Delta | undefined;
   revert(op: Delta): Delta;
   // collectGarbage(): GCDelta[];
 }
@@ -111,7 +111,7 @@ interface IConflictResolver {
 interface IClient extends IOperationHandler {
   clientID: YjsID["clientID"];
   clock: YjsID["clock"];
-  applyOps(ops: Delta[]): void;
+  applyOps(ops: Delta[]): Delta[];
 }
 
 interface IHandlerConfig {
