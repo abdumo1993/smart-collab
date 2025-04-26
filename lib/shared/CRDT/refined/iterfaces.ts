@@ -35,14 +35,12 @@ interface MarkerContent extends ContentBase {
   length: number;
 }
 
-
-
 type Content =
   | StringContent
   | NoContent
   | ObjectContent
   | BinaryContent
-  | MarkerContent
+  | MarkerContent;
 
 // operation Types
 
@@ -60,8 +58,7 @@ interface DeleteDelta extends OperationBase {
   itemID: YjsID;
 }
 
-
-type Delta = InsertDelta | DeleteDelta ;
+type Delta = InsertDelta | DeleteDelta;
 
 // storage interfaces
 
@@ -80,16 +77,25 @@ interface IBufferStore {
   remove(key: string): void;
 }
 // Document interfaces
+// block that will hold IDocumentItems.
+interface IDocBlock {
+  id: number;
+  head: IDocumentItem;
+  tail: IDocumentItem;
+  size: number;
+}
 interface IDocumentItem {
   id: YjsID;
   origin: IDocumentItem | null;
   rightOrigin: IDocumentItem | null;
   content: Content;
   deleted: boolean;
+  block?: IDocBlock["id"];
 }
 interface IDocStructure {
   head: IDocumentItem;
   tail: IDocumentItem;
+  items?: Map<string, IDocumentItem>;
   traverse(start: IDocumentItem, target: YjsID): IDocumentItem | null;
   traverseAll(callback: (item: IDocumentItem) => void);
   createItem(
@@ -97,6 +103,7 @@ interface IDocStructure {
     op: InsertDelta,
     rightOrigin: IDocumentItem
   ): IDocumentItem;
+  deleteItem(item: IDocumentItem): void;
 }
 
 // opration handleres interface
@@ -136,8 +143,9 @@ interface IHelper {
 }
 
 interface IGarbageCollector {
-    
-    getSafeVector(peerVectors: Map<YjsID["clientID"], StateVector>): StateVector | undefined;
+  getSafeVector(
+    peerVectors: Map<YjsID["clientID"], StateVector>
+  ): StateVector | undefined;
   collectGarbage(peerVectors: Map<YjsID["clientID"], StateVector>): void;
 }
 
@@ -176,6 +184,7 @@ export {
   IDocumentItem,
   IHelper,
   IClient,
+  ContentBase,
   StringContent,
   IHandlerConfig,
   IGarbageCollector,

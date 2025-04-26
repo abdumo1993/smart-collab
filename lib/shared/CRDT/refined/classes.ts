@@ -84,17 +84,6 @@ class Store implements IOperationStore {
   }
 }
 
-// async getAllOps()
-class asyncStore extends Store {
-  private ops: Delta[] = [];
-  private finished: boolean = false;
-  constructor(private batchSize: number = 100) {
-    super();
-  }
-
-  public *getAllOpsIterator(): IterableIterator<Delta> {}
-}
-
 // implement operatonsHandlers
 class InsertOperationHandler implements IOperationHandler {
   constructor(
@@ -108,7 +97,9 @@ class InsertOperationHandler implements IOperationHandler {
   ) {}
   apply(op: InsertDelta): InsertDelta | undefined {
     if (!this.stateVectore.isNewOperation(op)) return;
-    const origin = this.document.traverse(this.document.head, op.origin);
+    const origin =
+      this.document.items?.get(this.helper.stringifyYjsID(op.origin)) ??
+      this.document.traverse(this.document.head, op.origin);
     if (!origin) {
       this.oBuffer.add(this.helper.stringifyYjsID(op.origin), op);
       return;
@@ -121,6 +112,7 @@ class InsertOperationHandler implements IOperationHandler {
       this.rBuffer.add(this.helper.stringifyYjsID(op.rightOrigin), op);
       return;
     }
+    this.document.items?.set(this.helper.stringifyYjsID(op.id), item);
     this.store.set(item.id.clientID, item.id.clock, op);
     this.stateVectore.update(op.id.clientID, op.id.clock);
     const newOP = { ...op };
@@ -143,12 +135,15 @@ class DeleteOperationHandler implements IOperationHandler {
   ) {}
   apply(op: DeleteDelta): Delta | undefined {
     if (!this.stateVectore.isNewOperation(op)) return;
-    const item = this.document.traverse(this.document.head, op.itemID);
+    const item =
+      this.document.items?.get(this.helper.stringifyYjsID(op.itemID)) ??
+      this.document.traverse(this.document.head, op.itemID);
     if (!item) {
       this.buffer.add(this.helper.stringifyYjsID(op.itemID), op);
       return;
     }
     item.deleted = true;
+    
     this.store.set(op.id.clientID, op.id.clock, op);
     this.stateVectore.update(op.id.clientID, op.id.clock);
   }
@@ -320,7 +315,8 @@ class Client implements IClient {
 class DocStructure implements IDocStructure {
   head: IDocumentItem;
   tail: IDocumentItem;
-  constructor() {
+  items: Map<string, IDocumentItem> = new Map();
+  constructor(private helper: IHelper = new Helper()) {
     this.head = this.createSentinel(
       Number.MIN_SAFE_INTEGER,
       Number.MIN_SAFE_INTEGER,
@@ -335,6 +331,9 @@ class DocStructure implements IDocStructure {
     );
     this.head.rightOrigin = this.tail;
     this.tail.origin = this.head;
+  }
+  deleteItem(item: IDocumentItem): void {
+    this.items.delete(this.helper.stringifyYjsID(item.id));
   }
   traverseAll(callback: (item: IDocumentItem) => void) {
     let curr: IDocumentItem | null = this.head;
@@ -458,6 +457,8 @@ class GarbageCollectorDeprecated implements IGarbageCollector {
       // link the rest of the doc
       origin.rightOrigin = rightOrigin;
       rightOrigin.origin = origin;
+      // delete from items map
+      this.document.deleteItem(item);
     });
 
     // collect operatons as well.
