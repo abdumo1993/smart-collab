@@ -24,6 +24,7 @@ import {
   IBlockHandler,
   BlockReturn,
 } from "./iterfaces";
+import { CRDTError } from "./errors";
 
 // implement buffers
 class BufferStore implements IBufferStore {
@@ -101,33 +102,37 @@ class InsertOperationHandler implements IOperationHandler {
     private blockHandler?: IBlockHandler
   ) {}
   apply(op: InsertDelta): InsertDelta | undefined {
-    if (!this.stateVectore.isNewOperation(op)) return;
-    const origin =
-      this.document.items?.get(this.helper.stringifyYjsID(op.origin)) ??
-      this.document.traverse(this.document.head, op.origin);
-    if (!origin) {
-      this.oBuffer.add(this.helper.stringifyYjsID(op.origin), op);
-      return;
-    }
-    const item: IDocumentItem | null = this.conflictResolver.resolve(
-      origin,
-      op
-    );
-    if (!item) {
-      this.rBuffer.add(this.helper.stringifyYjsID(op.rightOrigin), op);
-      return;
-    }
-    // handle block
-    this.blockHandler?.add(item);
-    // item.block = origin.block;
+    try {
+      if (!this.stateVectore.isNewOperation(op)) return;
+      const origin =
+        this.document.items?.get(this.helper.stringifyYjsID(op.origin)) ??
+        this.document.traverse(this.document.head, op.origin);
+      if (!origin) {
+        this.oBuffer.add(this.helper.stringifyYjsID(op.origin), op);
+        return;
+      }
+      const item: IDocumentItem | null = this.conflictResolver.resolve(
+        origin,
+        op
+      );
+      if (!item) {
+        this.rBuffer.add(this.helper.stringifyYjsID(op.rightOrigin), op);
+        return;
+      }
+      // handle block
+      this.blockHandler?.add(item);
+      // item.block = origin.block;
 
-    this.document.items?.set(this.helper.stringifyYjsID(op.id), item);
-    this.store.set(item.id.clientID, item.id.clock, op);
-    this.stateVectore.update(op.id.clientID, op.id.clock);
-    const newOP = { ...op };
-    newOP.origin = item.origin!.id;
-    newOP.rightOrigin = item.rightOrigin!.id;
-    return newOP;
+      this.document.items?.set(this.helper.stringifyYjsID(op.id), item);
+      this.store.set(item.id.clientID, item.id.clock, op);
+      this.stateVectore.update(op.id.clientID, op.id.clock);
+      const newOP = { ...op };
+      newOP.origin = item.origin!.id;
+      newOP.rightOrigin = item.rightOrigin!.id;
+      return newOP;
+    } catch (e) {
+      throw new CRDTError("InsertOperationHandler Failed", e);
+    }
   }
   revert(op: Delta): Delta {
     throw new Error("Method not implemented.");
@@ -145,34 +150,38 @@ class DeleteOperationHandler implements IOperationHandler {
     private blockStructure?: IBlockStructure
   ) {}
   apply(op: DeleteDelta): Delta | undefined {
-    if (!this.stateVectore.isNewOperation(op)) return;
-    const item =
-      this.document.items?.get(this.helper.stringifyYjsID(op.itemID)) ??
-      this.document.traverse(this.document.head, op.itemID);
-    if (!item) {
-      this.buffer.add(this.helper.stringifyYjsID(op.itemID), op);
-      return;
-    }
-    item.deleted = true;
+    try {
+      if (!this.stateVectore.isNewOperation(op)) return;
+      const item =
+        this.document.items?.get(this.helper.stringifyYjsID(op.itemID)) ??
+        this.document.traverse(this.document.head, op.itemID);
+      if (!item) {
+        this.buffer.add(this.helper.stringifyYjsID(op.itemID), op);
+        return;
+      }
+      item.deleted = true;
 
-    this.store.set(op.id.clientID, op.id.clock, op);
-    this.stateVectore.update(op.id.clientID, op.id.clock);
+      this.store.set(op.id.clientID, op.id.clock, op);
+      this.stateVectore.update(op.id.clientID, op.id.clock);
 
-    // handle block
-    const itemBlock = this.blockStructure?.blocks?.get(item.block!);
-    if (
-      itemBlock?.rep?.id.clientID === item.id.clientID &&
-      itemBlock?.rep?.id.clock === item.id.clock
-    ) {
-      this.blockHandler?.delete(itemBlock);
+      // handle block
+      const itemBlock = this.blockStructure?.blocks?.get(item.block!);
+      if (
+        itemBlock?.rep?.id.clientID === item.id.clientID &&
+        itemBlock?.rep?.id.clock === item.id.clock
+      ) {
+        this.blockHandler?.delete(itemBlock);
+        return op;
+      }
+      if (itemBlock) {
+        itemBlock.size -=
+          item.content.type === "text" ? item.content.value.length : 1;
+      }
+
       return op;
+    } catch (e) {
+      throw new CRDTError("DeleteOperationHandler failed", e);
     }
-    if (itemBlock) {
-      itemBlock.size -=
-        item.content.type === "text" ? item.content.value.length : 1;
-    }
-
-    return op;
   }
   revert(op: Delta): Delta {
     throw new Error("Method not implemented.");
@@ -184,28 +193,32 @@ class ConflictResolver implements IConflictResolver {
   constructor(private document: IDocStructure) {}
   // happens only on insert as update is modeled as delete -> insert ops
   resolve(origin: IDocumentItem, op: InsertDelta): IDocumentItem | null {
-    let curr: IDocumentItem | null = origin;
-    let trueOrigin = origin;
-    let actualRightOrigin: IDocumentItem | null = null;
-    while (curr && !this.areIdsEqual(curr.id, op.rightOrigin)) {
-      if (this.isIdLess(curr.id, op.id)) {
-        trueOrigin = curr;
+    try {
+      let curr: IDocumentItem | null = origin;
+      let trueOrigin = origin;
+      let actualRightOrigin: IDocumentItem | null = null;
+      while (curr && !this.areIdsEqual(curr.id, op.rightOrigin)) {
+        if (this.isIdLess(curr.id, op.id)) {
+          trueOrigin = curr;
+        }
+        curr = curr.rightOrigin;
       }
-      curr = curr.rightOrigin;
-    }
-    if (!curr || !this.areIdsEqual(curr.id, op.rightOrigin)) {
-      return null;
-    }
+      if (!curr || !this.areIdsEqual(curr.id, op.rightOrigin)) {
+        return null;
+      }
 
-    actualRightOrigin = trueOrigin.rightOrigin;
-    const newItem = this.document.createItem(
-      trueOrigin,
-      op,
-      actualRightOrigin!
-    );
-    trueOrigin.rightOrigin = newItem;
-    actualRightOrigin!.origin = newItem;
-    return newItem;
+      actualRightOrigin = trueOrigin.rightOrigin;
+      const newItem = this.document.createItem(
+        trueOrigin,
+        op,
+        actualRightOrigin!
+      );
+      trueOrigin.rightOrigin = newItem;
+      actualRightOrigin!.origin = newItem;
+      return newItem;
+    } catch (e) {
+      throw new CRDTError("ConflictResolver.resolve failed.", e);
+    }
   }
 
   private areIdsEqual(a: YjsID, b: YjsID): boolean {
@@ -236,24 +249,32 @@ class StateVectorManager implements IStateVectorManager {
   }
 
   update(clientID: YjsID["clientID"], clock: YjsID["clock"]): void {
-    const current = this.stateVector.get(clientID) || 0;
-    if (clock > current) {
-      this.stateVector.set(clientID, clock);
-      this.addToMissing({ clientID: clientID, clock: clock }, current);
-    }
-    const strId = this.helper.stringifyYjsID({
-      clientID: clientID,
-      clock: clock,
-    });
-    this.missingOps.has(strId) && this.missingOps.delete(strId);
-  }
-  merge(other: StateVector): void {
-    other.forEach((clock, clientID) => {
+    try {
       const current = this.stateVector.get(clientID) || 0;
       if (clock > current) {
         this.stateVector.set(clientID, clock);
+        this.addToMissing({ clientID: clientID, clock: clock }, current);
       }
-    });
+      const strId = this.helper.stringifyYjsID({
+        clientID: clientID,
+        clock: clock,
+      });
+      this.missingOps.has(strId) && this.missingOps.delete(strId);
+    } catch (e) {
+      throw new CRDTError("StateVectorManager.update failed", e);
+    }
+  }
+  merge(other: StateVector): void {
+    try {
+      other.forEach((clock, clientID) => {
+        const current = this.stateVector.get(clientID) || 0;
+        if (clock > current) {
+          this.stateVector.set(clientID, clock);
+        }
+      });
+    } catch (e) {
+      throw new CRDTError("StateVectorManager.merge failed", e);
+    }
   }
   private addToMissing(id: YjsID, current: number) {
     const diff = id.clock - current;
@@ -308,7 +329,7 @@ class Client implements IClient {
         let newOp = this.apply(op);
         newOp ? items.push(newOp) : items.push(op);
       } catch (e) {
-        console.log(e);
+        throw new CRDTError("Client.applyOps: failed to apply op", e);
       }
       oDependent &&
         (ops.push(...oDependent!),
@@ -324,7 +345,7 @@ class Client implements IClient {
   }
   apply(op: Delta): Delta | undefined {
     const handler = this.operationHandlers.get(op.type);
-    if (!handler) throw new Error(`No handler for ${op.type} operations`);
+    if (!handler) throw new CRDTError(`No handler for ${op.type} operations`);
     return handler.apply(op);
   }
   revert(op: Delta): Delta {
@@ -460,25 +481,29 @@ class BlockStructure implements IBlockStructure {
     this.tail.left = this.head;
   }
   traverse(start: IBlockItem, target: number): BlockReturn {
-    let current: IBlockItem = start;
-    let prev: IBlockItem | null = null;
-    let cumSum = 0;
-    while (current.right) {
-      cumSum += current.size;
-      if (cumSum >= target)
-        return {
-          block: prev ?? this.head,
-          remaining: target - (cumSum - current.size),
-          rep: prev?.rep ?? this.doc.head,
-        };
-      prev = current;
-      current = current.right;
+    try {
+      let current: IBlockItem = start;
+      let prev: IBlockItem | null = null;
+      let cumSum = 0;
+      while (current.right) {
+        cumSum += current.size;
+        if (cumSum >= target)
+          return {
+            block: prev ?? this.head,
+            remaining: target - (cumSum - current.size),
+            rep: prev?.rep ?? this.doc.head,
+          };
+        prev = current;
+        current = current.right;
+      }
+      return {
+        block: prev ?? this.head,
+        remaining: target - cumSum,
+        rep: prev?.rep ?? this.doc.head,
+      };
+    } catch (e) {
+      throw new CRDTError("BlockStructure.traverse failed", e);
     }
-    return {
-      block: prev ?? this.head,
-      remaining: target - cumSum,
-      rep: prev?.rep ?? this.doc.head,
-    };
   }
 }
 
@@ -488,77 +513,85 @@ class BlockHandler implements IBlockHandler {
     private blockStruct: IBlockStructure
   ) {}
   add(item: IDocumentItem): IBlockItem | undefined {
-    if (!this.checkNewLine(item)) {
-      item.block = item.rightOrigin?.block;
-      const block = this.blockStruct.blocks?.get(item.block!);
-      if (block)
-        block.size +=
-          item.content.type === "text" ? item.content.value.length : 1;
-      return block;
-    }
-    // it it is a new line then we add a new block
-    else {
-      let id;
-      let left;
-      let right;
-      // if both ends are tail and head
-      if (!item.origin?.origin && !item.rightOrigin?.rightOrigin) {
-        // the first block 1
-        id = 1;
-        left = this.blockStruct.head;
-        right = this.blockStruct.tail;
+    try {
+      if (!this.checkNewLine(item)) {
+        item.block = item.rightOrigin?.block;
+        const block = this.blockStruct.blocks?.get(item.block!);
+        if (block)
+          block.size +=
+            item.content.type === "text" ? item.content.value.length : 1;
+        return block;
       }
-      // if one of them is tail or head
-      else if (!item.origin?.origin) {
-        id = item.rightOrigin!.block! / 2;
-        left = this.blockStruct.head;
-        right = this.blockStruct.blocks?.get(item.rightOrigin?.block!);
-      } else if (!item.rightOrigin?.rightOrigin) {
-        id = item.origin.block! + 1;
-        right = this.blockStruct.tail;
-        left = this.blockStruct.blocks?.get(item.origin.block!);
-      }
-      // if both are not tail and head
+      // it it is a new line then we add a new block
       else {
-        id = (item.origin.block! + item.rightOrigin.block!) / 2;
-        left = this.blockStruct.blocks?.get(item.origin.block!);
-        right = this.blockStruct.blocks?.get(item.rightOrigin.block!);
+        let id;
+        let left;
+        let right;
+        // if both ends are tail and head
+        if (!item.origin?.origin && !item.rightOrigin?.rightOrigin) {
+          // the first block 1
+          id = 1;
+          left = this.blockStruct.head;
+          right = this.blockStruct.tail;
+        }
+        // if one of them is tail or head
+        else if (!item.origin?.origin) {
+          id = item.rightOrigin!.block! / 2;
+          left = this.blockStruct.head;
+          right = this.blockStruct.blocks?.get(item.rightOrigin?.block!);
+        } else if (!item.rightOrigin?.rightOrigin) {
+          id = item.origin.block! + 1;
+          right = this.blockStruct.tail;
+          left = this.blockStruct.blocks?.get(item.origin.block!);
+        }
+        // if both are not tail and head
+        else {
+          id = (item.origin.block! + item.rightOrigin.block!) / 2;
+          left = this.blockStruct.blocks?.get(item.origin.block!);
+          right = this.blockStruct.blocks?.get(item.rightOrigin.block!);
+        }
+        const block: IBlockItem = {
+          id: id,
+          left: left!,
+          right: right!,
+          size: 1,
+          rep: item,
+          deleted: false,
+        };
+        this.blockStruct.blocks?.set(block.id, block);
+        item.block = block.id;
+        block.left!.right = block;
+        block.right!.left = block;
+        return block;
       }
-      const block: IBlockItem = {
-        id: id,
-        left: left!,
-        right: right!,
-        size: 1,
-        rep: item,
-        deleted: false,
-      };
-      this.blockStruct.blocks?.set(block.id, block);
-      item.block = block.id;
-      block.left!.right = block;
-      block.right!.left = block;
-      return block;
+    } catch (e) {
+      throw new CRDTError("BlockHandler.add failed", e);
     }
   }
   delete(block: IBlockItem): IBlockItem {
-    let right = block.right;
+    try {
+      let right = block.right;
 
-    // !left && (left!.right = right);
-    // !right && (right!.left = left);
+      // !left && (left!.right = right);
+      // !right && (right!.left = left);
 
-    // block.left = null;
-    // block.right = null;
-    block.deleted = true;
+      // block.left = null;
+      // block.right = null;
+      block.deleted = true;
 
-    if (right && right!.rep) {
-      const repAttr = right!.rep!.content.attributes;
-      right!.rep!.content.attributes = {
-        ...repAttr,
-        ...block.rep!.content.attributes,
-      };
-      right!.size += block.size - 1;
+      if (right && right!.rep) {
+        const repAttr = right!.rep!.content.attributes;
+        right!.rep!.content.attributes = {
+          ...repAttr,
+          ...block.rep!.content.attributes,
+        };
+        right!.size += block.size - 1;
+      }
+
+      return block;
+    } catch (e) {
+      throw new CRDTError("BlockHandler.delete failed", e);
     }
-
-    return block;
   }
   private checkNewLine(item: IDocumentItem): boolean {
     return item.content.type === "text" ? item.content.value === "\n" : false;

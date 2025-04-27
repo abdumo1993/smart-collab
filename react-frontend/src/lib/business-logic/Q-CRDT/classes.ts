@@ -11,6 +11,7 @@ import {
   StringContent,
   IHelper,
 } from "../CRDT/iterfaces";
+import { ConversionError } from "./errors";
 import {
   IOperationConverter,
   QDelta,
@@ -39,7 +40,7 @@ class OperationConvertor implements IOperationConverter {
     raw.ops.forEach((elem: midDelta) => {
       const convertor = this.convertors.get(elem.type!);
       if (!convertor)
-        throw new Error(`No convertor for ${elem.type} operations`);
+        throw new ConversionError(`No convertor for ${elem.type} operations`);
 
       deltas.push(...convertor.toCrdt(elem));
     });
@@ -52,67 +53,64 @@ class OperationConvertor implements IOperationConverter {
     deltas.forEach((elem, ind) => {
       const convertor = this.convertors.get(elem.type!);
       if (!convertor)
-        throw new Error(`No convertor for ${elem.type} operations`);
+        throw new ConversionError(`No convertor for ${elem.type} operations`);
       ops.push(...convertor.toQ(elem));
     });
     return qDelta;
   }
 
-  private MidDeltatoQ(op: midDelta): QDelta {
-    const ops: QdeltaType[] = [];
-    const qDelta: QDelta = { ops: ops };
-    op.type;
-    return qDelta;
-  }
-
   private qToMidDelta(ops: QdeltaType[]): midDeltaRecord {
-    if (ops.length === 1) {
-      const op: midDelta = {
-        type: "",
-        start: 0,
-        content: ops[0]["insert"],
-        dlength: ops[0]["delete"],
-        rlength: ops[0]["retain"],
-        attributes: ops[0]["attributes"],
-      };
-      if (op.content) op.type = "insert";
-      if (op.dlength) op.type = "delete";
-      if (op.rlength) op.type = "retain";
-      const midOps: midDeltaRecord = {
-        ops: [op],
-        currPos: 0,
-      };
-      return midOps;
-    } else {
-      // handle in pairs. one retain for location one for operation
+    try {
+      if (ops.length === 1) {
+        const op: midDelta = {
+          type: "",
+          start: 0,
+          content: ops[0]["insert"],
+          dlength: ops[0]["delete"],
+          rlength: ops[0]["retain"],
+          attributes: ops[0]["attributes"],
+        };
+        if (op.content) op.type = "insert";
+        if (op.dlength) op.type = "delete";
+        if (op.rlength) op.type = "retain";
+        const midOps: midDeltaRecord = {
+          ops: [op],
+          currPos: 0,
+        };
+        return midOps;
+      } else {
+        // handle in pairs. one retain for location one for operation
 
-      return Array.from(ops).reduce(
-        (acc: { ops: midDelta[]; currPos: number }, _, i, arr) => {
-          if (i % 2 === 0 && i + 1 < arr.length) {
-            let a = arr[i]; // gives start loc
-            let b = arr[i + 1]; // gives length of op or content of op
-            let op: midDelta = {
-              start: a["retain"]! + acc.currPos,
-              dlength: b["delete"],
-              rlength: b["retain"],
-              content: b["insert"],
-              attributes: b["attributes"],
-            };
-            if (op.content) op.type = "insert";
-            if (op.dlength) op.type = "delete";
-            if (op.rlength) op.type = "retain";
-            acc.ops.push(op);
-            let pChange = op.start! + (op.rlength ?? op.content?.length ?? 0);
-            let nChange = op.dlength ?? 0;
+        return Array.from(ops).reduce(
+          (acc: { ops: midDelta[]; currPos: number }, _, i, arr) => {
+            if (i % 2 === 0 && i + 1 < arr.length) {
+              let a = arr[i]; // gives start loc
+              let b = arr[i + 1]; // gives length of op or content of op
+              let op: midDelta = {
+                start: a["retain"]! + acc.currPos,
+                dlength: b["delete"],
+                rlength: b["retain"],
+                content: b["insert"],
+                attributes: b["attributes"],
+              };
+              if (op.content) op.type = "insert";
+              if (op.dlength) op.type = "delete";
+              if (op.rlength) op.type = "retain";
+              acc.ops.push(op);
+              let pChange = op.start! + (op.rlength ?? op.content?.length ?? 0);
+              let nChange = op.dlength ?? 0;
 
-            acc.currPos = pChange - nChange;
+              acc.currPos = pChange - nChange;
 
+              return acc;
+            }
             return acc;
-          }
-          return acc;
-        },
-        { ops: [], currPos: 0 }
-      );
+          },
+          { ops: [], currPos: 0 }
+        );
+      }
+    } catch (e) {
+      throw new ConversionError("OperationConvertor.qToMidDelta failed", e);
     }
   }
 }
@@ -125,61 +123,65 @@ class InsertOperationConvertor implements IMidOpConvertor {
     private helper: IHelper
   ) {}
   toCrdt(mOp: midDelta): Delta[] {
-    let origin: IDocumentItem;
-    let rightOrigin: IDocumentItem | null;
-    const content = mOp.content!;
-    const originDest = this.blockStruct.traverse(
-      this.blockStruct.head,
-      mOp.start!
-    );
-    let remaining = originDest.remaining;
-    let curr = originDest.rep;
-    let prev = curr;
-    while (remaining > 0) {
-      if (curr === originDest.rep) {
-        curr.rightOrigin && (curr = curr.rightOrigin);
-        continue;
+    try {
+      let origin: IDocumentItem;
+      let rightOrigin: IDocumentItem | null;
+      const content = mOp.content!;
+      const originDest = this.blockStruct.traverse(
+        this.blockStruct.head,
+        mOp.start!
+      );
+      let remaining = originDest.remaining;
+      let curr = originDest.rep;
+      let prev = curr;
+      while (remaining > 0) {
+        if (curr === originDest.rep) {
+          curr.rightOrigin && (curr = curr.rightOrigin);
+          continue;
+        }
+        // curr.content.type === "text"
+        //   ? (remaining -= curr.content.value.length)
+        //   : (remaining -= 1);
+        curr.content.type === "text" &&
+          (remaining -= curr.content.value.length);
+        curr.rightOrigin && ((prev = curr), (curr = curr.rightOrigin));
+        if (!curr.rightOrigin) {
+          remaining = 0;
+        }
       }
-      // curr.content.type === "text"
-      //   ? (remaining -= curr.content.value.length)
-      //   : (remaining -= 1);
-      curr.content.type === "text" && (remaining -= curr.content.value.length);
-      curr.rightOrigin && ((prev = curr), (curr = curr.rightOrigin));
-      if (!curr.rightOrigin) {
-        remaining = 0;
+      // if (remaining < 0) {
+      //   curr.content.type === "text" &&
+      //     ((remaining += curr.content.value.length),
+      //     (curr = curr.origin!),
+      //     prev && (prev = prev.origin!));
+      // }
+      if (remaining < 0) {
+        prev?.content.type === "text" &&
+          ((remaining += prev?.content.value!.length),
+          (curr = curr.origin!),
+          prev && (prev = prev.origin!));
       }
-    }
-    // if (remaining < 0) {
-    //   curr.content.type === "text" &&
-    //     ((remaining += curr.content.value.length),
-    //     (curr = curr.origin!),
-    //     prev && (prev = prev.origin!));
-    // }
-    if (remaining < 0) {
-      prev?.content.type === "text" &&
-        ((remaining += prev?.content.value!.length),
-        (curr = curr.origin!),
-        prev && (prev = prev.origin!));
-    }
 
-    if (remaining === 0) {
-      // origin = curr.origin!;
-      origin = prev;
-      rightOrigin = prev.rightOrigin;
-      const op: InsertDelta = {
-        id: { clientID: this.client.clientID, clock: ++this.client.clock },
-        type: "insert",
-        content: { type: "text", value: content },
-        origin: origin.id,
-        rightOrigin: rightOrigin?.id ?? this.doc.tail.id,
-      };
-      mOp.attributes && (op.content.attributes = mOp.attributes);
-      return [op];
-    } else {
-      // need to devide the curr to add new item inside.
-      return this.divideInsert(remaining, content, mOp.attributes, curr);
+      if (remaining === 0) {
+        // origin = curr.origin!;
+        origin = prev;
+        rightOrigin = prev.rightOrigin;
+        const op: InsertDelta = {
+          id: { clientID: this.client.clientID, clock: ++this.client.clock },
+          type: "insert",
+          content: { type: "text", value: content },
+          origin: origin.id,
+          rightOrigin: rightOrigin?.id ?? this.doc.tail.id,
+        };
+        mOp.attributes && (op.content.attributes = mOp.attributes);
+        return [op];
+      } else {
+        // need to devide the curr to add new item inside.
+        return this.divideInsert(remaining, content, mOp.attributes, curr);
+      }
+    } catch (e) {
+      throw new ConversionError("InsertOperationconvertor.toCrdt failed", e);
     }
-
     // throw new Error("Method not implemented.");
   }
   private divideInsert(
@@ -270,64 +272,41 @@ class InsertOperationConvertor implements IMidOpConvertor {
     return deltas;
   }
   toQ(cOp: InsertDelta): QdeltaType[] {
-    const ops: QdeltaType[] = [];
-    const block = this.blockStruct.blocks?.get(
-      this.doc.items!.get(this.helper.stringifyYjsID(cOp.id))?.block!
-    );
-    let start = 0;
-    const left = block?.left;
-    if (left) {
-      let cumSum = left.size;
-      let curr: IDocumentItem | null = left.rep ?? this.doc.head;
-      while (
-        curr &&
-        this.helper.stringifyYjsID(curr.id) !==
-          this.helper.stringifyYjsID(cOp.id)
-      ) {
-        cumSum += curr?.content.type === "text" ? curr.content.value.length : 0;
-        curr && (curr = curr.rightOrigin);
+    try {
+      const ops: QdeltaType[] = [];
+      const block = this.blockStruct.blocks?.get(
+        this.doc.items!.get(this.helper.stringifyYjsID(cOp.id))?.block!
+      );
+      let start = 0;
+      const left = block?.left;
+      if (left) {
+        let cumSum = left.size;
+        let curr: IDocumentItem | null = left.rep ?? this.doc.head;
+        while (
+          curr &&
+          this.helper.stringifyYjsID(curr.id) !==
+            this.helper.stringifyYjsID(cOp.id)
+        ) {
+          cumSum +=
+            curr?.content.type === "text" ? curr.content.value.length : 0;
+          curr && (curr = curr.rightOrigin);
+        }
+        if (!curr)
+          throw new Error("Item not found or Block logic not implemented.");
+        start = cumSum;
       }
-      if (!curr)
-        throw new Error("Item not found or Block logic not implemented.");
-      start = cumSum;
-    }
 
-    start && ops.push({ retain: start });
-    const op: QdeltaType = {
-      insert: cOp.content.type === "text" ? cOp.content.value : "",
-      ...(cOp.content.attributes && { attributes: cOp.content.attributes }),
-    };
-    ops.push(op);
-    return ops;
+      start && ops.push({ retain: start });
+      const op: QdeltaType = {
+        insert: cOp.content.type === "text" ? cOp.content.value : "",
+        ...(cOp.content.attributes && { attributes: cOp.content.attributes }),
+      };
+      ops.push(op);
+      return ops;
+    } catch (e) {
+      throw new ConversionError("InsertOperationCovnertor.toQ failed", e);
+    }
   }
-  // toQ(cOp: InsertDelta): midDelta {
-  //   let op: midDelta = {
-  //     type: "insert",
-  //     content: cOp.content.type === "text" ? cOp.content.value : "",
-  //     attributes: cOp.content.attributes,
-  //     start: 0, // need to change this
-  //   };
-  //   const block = this.blockStruct.blocks?.get(
-  //     this.doc.items!.get(this.helper.stringifyYjsID(cOp.id))?.block!
-  //   );
-  //   const left = block?.left;
-  //   if (left) {
-  //     let cumSum = left.size;
-  //     let curr = left.rep ?? null;
-  //     while (
-  //       curr &&
-  //       this.helper.stringifyYjsID(curr.id) ===
-  //         this.helper.stringifyYjsID(cOp.id)
-  //     ) {
-  //       curr && (curr = curr.rightOrigin);
-  //       cumSum += curr?.content.type === "text" ? curr.content.value.length : 1;
-  //     }
-  //     if (!curr)
-  //       throw new Error("Item not found or Block logic not implemented.");
-  //     op.start = cumSum;
-  //   }
-  //   return op;
-  // }
 }
 
 class DeleteOperationConvertor implements IMidOpConvertor {
@@ -340,36 +319,41 @@ class DeleteOperationConvertor implements IMidOpConvertor {
   toCrdt(mOp: midDelta): Delta[] {
     // let origin: IDocumentItem;
     // let rightOrigin: IDocumentItem | null;
-    const dLen = mOp.dlength!;
-    const originDest = this.blockStruct.traverse(
-      this.blockStruct.head,
-      mOp.start!
-    );
-    let remaining = originDest.remaining;
-    let curr = originDest.rep;
-    let prev;
-    while (remaining > 0) {
-      if (curr === originDest.rep) {
-        curr.rightOrigin && (curr = curr.rightOrigin);
-        continue;
+    try {
+      const dLen = mOp.dlength!;
+      const originDest = this.blockStruct.traverse(
+        this.blockStruct.head,
+        mOp.start!
+      );
+      let remaining = originDest.remaining;
+      let curr = originDest.rep;
+      let prev;
+      while (remaining > 0) {
+        if (curr === originDest.rep) {
+          curr.rightOrigin && (curr = curr.rightOrigin);
+          continue;
+        }
+        curr.content.type === "text" &&
+          (remaining -= curr.content.value.length);
+        curr.rightOrigin && ((prev = curr), (curr = curr.rightOrigin));
+        if (!curr.rightOrigin) {
+          remaining = 0;
+        }
       }
-      curr.content.type === "text" && (remaining -= curr.content.value.length);
-      curr.rightOrigin && ((prev = curr), (curr = curr.rightOrigin));
-      if (!curr.rightOrigin) {
-        remaining = 0;
+
+      if (remaining < 0) {
+        prev?.content.type === "text" &&
+          ((remaining += prev?.content.value!.length),
+          (curr = curr.origin!),
+          prev && (prev = prev.origin!));
       }
-    }
+      // if tail, no origin no deletion, no link error?
+      if (!curr.rightOrigin?.rightOrigin) return [];
 
-    if (remaining < 0) {
-      prev?.content.type === "text" &&
-        ((remaining += prev?.content.value!.length),
-        (curr = curr.origin!),
-        prev && (prev = prev.origin!));
+      return this.divideDelete(remaining, dLen, prev ?? curr);
+    } catch (e) {
+      throw new ConversionError("DeleteOperationConvertor.toCrdt failed", e);
     }
-    // if tail, no origin no deletion, no link error?
-    if (!curr.rightOrigin?.rightOrigin) return [];
-
-    return this.divideDelete(remaining, dLen, prev ?? curr);
   }
   private divideDelete(
     remaining: number,
@@ -485,62 +469,43 @@ class DeleteOperationConvertor implements IMidOpConvertor {
     return deltas;
   }
   toQ(cOp: DeleteDelta): QdeltaType[] {
-    //   let op: midDelta = {
-    //     type: "delete",
-    //     dlength: 0,
-    //     start: 0, // need to change this
-    //   };
-    //   const block = this.blockStruct.blocks?.get(
-    //     this.doc.items!.get(this.helper.stringifyYjsID(cOp.itemID))?.block!
-    //   );
-    //   const left = block?.left;
-    //   if (left) {
-    //     let cumSum = left.size;
-    //     let curr = left.rep ?? null;
-    //     while (
-    //       curr &&
-    //       this.helper.stringifyYjsID(curr.id) ===
-    //         this.helper.stringifyYjsID(cOp.itemID)
-    //     ) {
-    //       curr && (curr = curr.rightOrigin);
-    //       cumSum += curr?.content.type === "text" ? curr.content.value.length : 1;
-    //     }
-    //     if (!curr)
-    //       throw new Error("Item not found or Block logic not implemented.");
-    //     op.start = cumSum;
-    //     op.dlength = curr.content.type === "text" ? curr.content.value.length : 1;
-    //   }
-    //   return op;
-    const ops: QdeltaType[] = [];
-    const block = this.blockStruct.blocks?.get(
-      this.doc.items!.get(this.helper.stringifyYjsID(cOp.itemID))?.block!
-    );
-    let start = 0;
-    let dLen = 0;
-    const left = block?.left;
-    if (left) {
-      let cumSum = left.size;
-      let curr: IDocumentItem | null = left.rep ?? this.doc.head;
-      while (
-        curr &&
-        this.helper.stringifyYjsID(curr.id) !==
-          this.helper.stringifyYjsID(cOp.itemID)
-      ) {
-        cumSum += curr?.content.type === "text" ? curr.content.value.length : 0;
-        curr && (curr = curr.rightOrigin);
-      }
-      if (!curr)
-        throw new Error("Item not found or Block logic not implemented.");
-      start = cumSum;
-      dLen = curr.content.type === "text" ? curr.content.value.length : 0;
-    }
+    //
 
-    start && ops.push({ retain: start });
-    const op: QdeltaType = {
-      delete: dLen,
-    };
-    ops.push(op);
-    return ops;
+    try {
+      const ops: QdeltaType[] = [];
+      const block = this.blockStruct.blocks?.get(
+        this.doc.items!.get(this.helper.stringifyYjsID(cOp.itemID))?.block!
+      );
+      let start = 0;
+      let dLen = 0;
+      const left = block?.left;
+      if (left) {
+        let cumSum = left.size;
+        let curr: IDocumentItem | null = left.rep ?? this.doc.head;
+        while (
+          curr &&
+          this.helper.stringifyYjsID(curr.id) !==
+            this.helper.stringifyYjsID(cOp.itemID)
+        ) {
+          cumSum +=
+            curr?.content.type === "text" ? curr.content.value.length : 0;
+          curr && (curr = curr.rightOrigin);
+        }
+        if (!curr)
+          throw new Error("Item not found or Block logic not implemented.");
+        start = cumSum;
+        dLen = curr.content.type === "text" ? curr.content.value.length : 0;
+      }
+
+      start && ops.push({ retain: start });
+      const op: QdeltaType = {
+        delete: dLen,
+      };
+      ops.push(op);
+      return ops;
+    } catch (e) {
+      throw new ConversionError("DeleteOperationConvertor.toQ", e);
+    }
   }
 }
 
@@ -560,34 +525,39 @@ class RetainOperationConvertor implements IMidOpConvertor {
     private client: IClient
   ) {}
   toCrdt(mOp: midDelta): Delta[] {
-    const rLen = mOp.rlength!;
-    const originDest = this.blockStruct.traverse(
-      this.blockStruct.head,
-      mOp.start!
-    );
-    let remaining = originDest.remaining;
-    let curr = originDest.rep;
-    let prev;
-    while (remaining > 0) {
-      if (curr === originDest.rep) {
-        curr.rightOrigin && (curr = curr.rightOrigin);
-        continue;
+    try {
+      const rLen = mOp.rlength!;
+      const originDest = this.blockStruct.traverse(
+        this.blockStruct.head,
+        mOp.start!
+      );
+      let remaining = originDest.remaining;
+      let curr = originDest.rep;
+      let prev;
+      while (remaining > 0) {
+        if (curr === originDest.rep) {
+          curr.rightOrigin && (curr = curr.rightOrigin);
+          continue;
+        }
+        curr.content.type === "text" &&
+          (remaining -= curr.content.value.length);
+        curr.rightOrigin && ((prev = curr), (curr = curr.rightOrigin));
+        if (!curr.rightOrigin) {
+          remaining = 0;
+        }
       }
-      curr.content.type === "text" && (remaining -= curr.content.value.length);
-      curr.rightOrigin && ((prev = curr), (curr = curr.rightOrigin));
-      if (!curr.rightOrigin) {
-        remaining = 0;
+      if (remaining < 0) {
+        prev?.content.type === "text" &&
+          ((remaining += prev?.content.value!.length),
+          (curr = curr.origin!),
+          prev && (prev = prev.origin!));
       }
+      // if tail, no origin no deletion, no link error?
+      if (!curr.rightOrigin?.rightOrigin) return [];
+      return this.divideRetain(remaining, rLen, prev ?? curr, mOp.attributes);
+    } catch (e) {
+      throw new ConversionError("RetainOperationConvertor.toCrdt failed", e);
     }
-    if (remaining < 0) {
-      prev?.content.type === "text" &&
-        ((remaining += prev?.content.value!.length),
-        (curr = curr.origin!),
-        prev && (prev = prev.origin!));
-    }
-    // if tail, no origin no deletion, no link error?
-    if (!curr.rightOrigin?.rightOrigin) return [];
-    return this.divideRetain(remaining, rLen, prev ?? curr, mOp.attributes);
   }
   private divideRetain(
     remaining: number,
@@ -756,7 +726,7 @@ class RetainOperationConvertor implements IMidOpConvertor {
     return deltas;
   }
   toQ(cOp: Delta): QdeltaType[] {
-    throw new Error("No Retain Operation in CRDT");
+    throw new ConversionError("No Retain Operation in CRDT");
   }
 }
 
@@ -766,3 +736,21 @@ export {
   DeleteOperationConvertor,
   RetainOperationConvertor,
 };
+
+/**
+ *  refactor(CRDT): modularize operation conversion and traversal logic
+    
+        - BlockStructure: Introduced for efficient traversal across document structures, enabling localized and optimized block-level operations.
+        - OperationConvertor: Implements IOperationConverter to bridge Quill deltas and internal CRDT operations.
+        - InsertOperationConvertor | DeleteOperationConvertor | RetainOperationConvertor:
+            Specific converters implementing IMidOpConvertor, responsible for transforming mid-level deltas into CRDT-compatible operations.
+        - IOperationConverter: Defines interfaces for bidirectional conversion between Quill and CRDT deltas.
+        - IMidOpConvertor: Abstracts conversion of intermediate operations into low-level CRDT representations and vice versa.
+        - Central Registry (operationConvertor): Dynamically registers operation converters based on operation type, enabling scalable extension.
+ */
+
+/*
+feature(Error handling): streamline Exception handling in Conversion and CRDT logic
+    - ConversionError: Introduced to streamline all predictable Errors that occur in conversion logic
+    - CRDTError: Introduced to streamline all predictable Errors that occur in CRDT logic
+*/
