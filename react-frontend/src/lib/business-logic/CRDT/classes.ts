@@ -25,9 +25,10 @@ import {
   BlockReturn,
 } from "./iterfaces";
 import { CRDTError } from "./errors";
-
+const MAX_UUIDv4 = "z";
+const MIN_UUIDv4 = "";
 // implement buffers
-class BufferStore implements IBufferStore {
+class BufferStore implements IBufferStore<Map<string, Delta[]>> {
   constructor(private buffer: Map<string, Delta[]> = new Map()) {}
   getSize(): number {
     return this.buffer.size;
@@ -42,6 +43,9 @@ class BufferStore implements IBufferStore {
   }
   remove(key: string): void {
     this.buffer.delete(key);
+  }
+  getAll(): Map<string, Delta[]> {
+    return this.buffer;
   }
 }
 
@@ -96,8 +100,8 @@ class InsertOperationHandler implements IOperationHandler {
     private conflictResolver: IConflictResolver,
     private store: IOperationStore,
     private stateVectore: IStateVectorManager,
-    private oBuffer: IBufferStore,
-    private rBuffer: IBufferStore,
+    private oBuffer: IBufferStore<Map<string, Delta[]>>,
+    private rBuffer: IBufferStore<Map<string, Delta[]>>,
     private helper: IHelper,
     private blockHandler?: IBlockHandler
   ) {}
@@ -145,7 +149,7 @@ class DeleteOperationHandler implements IOperationHandler {
     private store: IOperationStore,
     private helper: IHelper,
     private stateVectore: IStateVectorManager,
-    private buffer: IBufferStore,
+    private buffer: IBufferStore<Map<string, Delta[]>>,
     private blockHandler?: IBlockHandler,
     private blockStructure?: IBlockStructure
   ) {}
@@ -235,11 +239,12 @@ class ConflictResolver implements IConflictResolver {
 
 // implement StateVector classes
 class StateVectorManager implements IStateVectorManager {
+  missingOps?: Set<string> | undefined;
   constructor(
     private stateVector: StateVector = new Map(),
-    private missingOps = new Set<string>(),
     private helper: IHelper = new Helper()
   ) {}
+
   getVector(): StateVector {
     return this.stateVector;
   }
@@ -259,7 +264,7 @@ class StateVectorManager implements IStateVectorManager {
         clientID: clientID,
         clock: clock,
       });
-      this.missingOps.has(strId) && this.missingOps.delete(strId);
+      this.missingOps?.has(strId) && this.missingOps?.delete(strId);
     } catch (e) {
       throw new CRDTError("StateVectorManager.update failed", e);
     }
@@ -280,7 +285,7 @@ class StateVectorManager implements IStateVectorManager {
     const diff = id.clock - current;
     if (diff > 1) {
       for (let i: number = current + 1; i < id.clock; i++) {
-        this.missingOps.add(
+        this.missingOps?.add(
           this.helper.stringifyYjsID({ clientID: id.clientID, clock: i })
         );
       }
@@ -289,7 +294,8 @@ class StateVectorManager implements IStateVectorManager {
   isNewOperation(op: Delta): boolean {
     const current = this.stateVector.get(op.id.clientID) || 0;
     const cond1 = op.id.clock > current;
-    const cond2 = this.missingOps.has(this.helper.stringifyYjsID(op.id));
+    const cond2 =
+      this.missingOps?.has(this.helper.stringifyYjsID(op.id)) ?? false;
     return cond1 || cond2;
   }
 }
@@ -299,14 +305,14 @@ class StateVectorManager implements IStateVectorManager {
 class Client implements IClient {
   private operationHandlers = new Map<string, IOperationHandler>();
   constructor(
-    public clientID: number,
+    public clientID: YjsID["clientID"],
     public clock: number,
     // private document: IDocStructure,
     private stateVector: IStateVectorManager,
     // private store: IOperationStore,
-    private oBuffer: IBufferStore,
-    private rBuffer: IBufferStore,
-    private tBuffer: IBufferStore,
+    private oBuffer: IBufferStore<Map<string, Delta[]>>,
+    private rBuffer: IBufferStore<Map<string, Delta[]>>,
+    private tBuffer: IBufferStore<Map<string, Delta[]>>,
     private helper: IHelper,
     // private conflictResolver: IConflictResolver,
     private handlerConfigs: IHandlerConfig[]
@@ -314,8 +320,9 @@ class Client implements IClient {
     this.registerOperationHandlers(this.handlerConfigs);
   }
 
-  applyOps(ops: Delta[]): Delta[] {
+  applyOps(opps: Delta[]): Delta[] {
     const items: Delta[] = [];
+    const ops = [...opps];
     while (ops.length > 0) {
       const op = ops.shift()!;
       if (!this.stateVector.isNewOperation(op)) {
@@ -389,13 +396,14 @@ class DocStructure implements IDocStructure {
   items: Map<string, IDocumentItem> = new Map();
   constructor(private helper: IHelper = new Helper()) {
     this.head = this.createSentinel(
-      Number.MIN_SAFE_INTEGER,
+      MIN_UUIDv4,
+      // '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed'
       Number.MIN_SAFE_INTEGER,
       null,
       null
     );
     this.tail = this.createSentinel(
-      Number.MAX_SAFE_INTEGER,
+      MAX_UUIDv4,
       Number.MAX_SAFE_INTEGER,
       null,
       null
@@ -442,7 +450,7 @@ class DocStructure implements IDocStructure {
 
   private createSentinel(
     clientID: YjsID["clientID"],
-    clock: YjsID["clientID"],
+    clock: YjsID["clock"],
     origin: IDocumentItem | null,
     rightOrigin: IDocumentItem | null
   ): IDocumentItem {
@@ -642,7 +650,7 @@ class MinVectorCalculator implements IVectorCalculator {
     allVectors.forEach((vector, clientID) => {
       !this.minVector.size && (this.minVector = vector);
       vector.forEach((clock, id) => {
-        const curr = this.minVector.get(id) ?? Number.MAX_SAFE_INTEGER;
+        const curr = this.minVector.get(id) ?? 0;
         if (clock < curr) this.minVector.set(id, clock);
       });
     });

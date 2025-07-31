@@ -27,7 +27,42 @@ import {
   IHandlerConfig,
 } from "./iterfaces";
 import { describe, test, expect, beforeEach } from "@jest/globals";
+import { v4 as uuidv4 } from "uuid";
+const MIN_UUIDv4 = "";
+const MAX_UUIDv4 = "z";
+const getUUID = (curr: string) => {
+  let uuid = uuidv4();
+  while (curr > uuid) {
+    uuid = uuidv4();
+  }
+  return [uuid, curr];
+};
+function sortByStringIndexOrder<T>(
+  a: string[],
+  b: T[],
+  options: {
+    caseSensitive?: boolean;
+    reverse?: boolean;
+    customComparator?: (a: string, b: string) => number;
+  } = {}
+): T[] {
+  if (a.length !== b.length) throw new Error("Array length mismatch");
 
+  return a
+    .map((value, index) => ({ value, index }))
+    .sort((x, y) => {
+      if (options.customComparator) {
+        return options.customComparator(x.value, y.value);
+      }
+
+      const compareResult = options.caseSensitive
+        ? x.value.localeCompare(y.value)
+        : x.value.toLowerCase().localeCompare(y.value.toLowerCase());
+
+      return options.reverse ? -compareResult : compareResult;
+    })
+    .map((pair) => b[pair.index]);
+}
 
 describe("Integration Tests", () => {
   let client: IClient;
@@ -40,6 +75,7 @@ describe("Integration Tests", () => {
   let helper: IHelper;
   let conflictResolver: IConflictResolver;
   let handlerConfigs: IHandlerConfig[];
+  let cID: string;
 
   beforeEach(() => {
     ydoc = new DocStructure();
@@ -67,11 +103,12 @@ describe("Integration Tests", () => {
       {
         type: "delete",
         factory: () =>
-          new DeleteOperationHandler(ydoc, store,helper, stateVector, tBuffer),
+          new DeleteOperationHandler(ydoc, store, helper, stateVector, tBuffer),
       },
     ];
+
     client = new Client(
-      1,
+      uuidv4(),
       0,
       stateVector,
       oBuffer,
@@ -80,30 +117,32 @@ describe("Integration Tests", () => {
       helper,
       handlerConfigs
     );
+
+    cID = client.clientID;
   });
 
   test("should handle a sequence of insert operations", () => {
     const op1: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "a" },
       origin: {
-        clientID: Number.MIN_SAFE_INTEGER,
+        clientID: MIN_UUIDv4,
         clock: Number.MIN_SAFE_INTEGER,
       },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
 
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "b" },
-      origin: { clientID: 1, clock: 1 },
+      origin: { clientID: cID, clock: 1 },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -111,25 +150,25 @@ describe("Integration Tests", () => {
     client.applyOps([op1, op2]);
 
     // Verify state vector updated
-    expect(stateVector.get(1)).toBe(2);
+    expect(stateVector.get(cID)).toBe(2);
 
     // Verify operations stored
-    expect(store.get(1, 1)).toBeDefined();
-    expect(store.get(1, 2)).toBeDefined();
+    expect(store.get(cID, 1)).toBeDefined();
+    expect(store.get(cID, 2)).toBeDefined();
   });
 
   test("should handle delete operations", () => {
     // First insert an item
     const insertOp: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "a" },
       origin: {
-        clientID: Number.MIN_SAFE_INTEGER,
+        clientID: MIN_UUIDv4,
         clock: Number.MIN_SAFE_INTEGER,
       },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -137,54 +176,54 @@ describe("Integration Tests", () => {
     // Then delete it
     const deleteOp: DeleteDelta = {
       type: "delete",
-      id: { clientID: 1, clock: 2 },
-      itemID: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 2 },
+      itemID: { clientID: cID, clock: 1 },
     };
 
     client.applyOps([insertOp, deleteOp]);
 
     // Verify state vector updated
-    expect(stateVector.get(1)).toBe(2);
+    expect(stateVector.get(cID)).toBe(2);
 
     // Verify operations stored
-    expect(store.get(1, 1)).toBeDefined();
-    expect(store.get(1, 2)).toBeDefined();
+    expect(store.get(cID, 1)).toBeDefined();
+    expect(store.get(cID, 2)).toBeDefined();
   });
 
   test("should handle and resolve operation dependencies", () => {
     // Create three operations where middle one arrives first
     const op1: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "a" },
       origin: {
-        clientID: Number.MIN_SAFE_INTEGER,
+        clientID: MIN_UUIDv4,
         clock: Number.MIN_SAFE_INTEGER,
       },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
 
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "b" },
-      origin: { clientID: 1, clock: 1 }, // Depends on op1
+      origin: { clientID: cID, clock: 1 }, // Depends on op1
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       }, // Depends on op3
     };
 
     const op3: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 3 },
+      id: { clientID: cID, clock: 3 },
       content: { type: "text", value: "c" },
-      origin: { clientID: 1, clock: 2 },
+      origin: { clientID: cID, clock: 2 },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -193,12 +232,14 @@ describe("Integration Tests", () => {
     client.applyOps([op2]);
 
     // Verify operation is not in store yet
-    expect(store.get(1, 2)).toBeUndefined();
+    expect(store.get(cID, 2)).toBeUndefined();
 
     // Verify operation is only in origin buffer
     expect(oBuffer.get(helper.stringifyYjsID(op2.origin))?.[0]).toBe(op2);
 
-    expect(rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]).toBeUndefined();
+    expect(
+      rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]
+    ).toBeUndefined();
 
     // expect(client.rBuffer.size).toBe(0); // Should not be in right buffer yet
 
@@ -206,7 +247,7 @@ describe("Integration Tests", () => {
     client.applyOps([op1]);
 
     // Verify op1 is in store
-    expect(store.get(1, 1)).toBeTruthy();
+    expect(store.get(cID, 1)).toBeTruthy();
 
     // Now op2 should move from oBuffer to rBuffer
     expect(oBuffer.get(helper.stringifyYjsID(op2.origin))?.[0]).toBeUndefined();
@@ -218,13 +259,15 @@ describe("Integration Tests", () => {
     client.applyOps([op3]);
 
     // Verify all operations are now in store
-    expect(store.get(1, 1)).toBeTruthy();
-    expect(store.get(1, 2)).toBeTruthy();
-    expect(store.get(1, 3)).toBeTruthy();
+    expect(store.get(cID, 1)).toBeTruthy();
+    expect(store.get(cID, 2)).toBeTruthy();
+    expect(store.get(cID, 3)).toBeTruthy();
 
     // Verify buffers are empty
     expect(oBuffer.get(helper.stringifyYjsID(op2.origin))?.[0]).toBeUndefined();
-    expect(rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]).toBeUndefined();
+    expect(
+      rBuffer.get(helper.stringifyYjsID(op2.rightOrigin))?.[0]
+    ).toBeUndefined();
 
     // Verify correct document structure
     const item1 = ydoc.traverse(ydoc.head, op1.id);
@@ -296,9 +339,8 @@ describe("Multi-Client Conflict Resolution Tests", () => {
             ),
         },
       ];
-
       let client: IClient = new Client(
-        i + 1,
+        `${i}`,
         0,
         svs[i],
         buffers[i][0],
@@ -320,11 +362,11 @@ describe("Multi-Client Conflict Resolution Tests", () => {
           type: "insert",
           content: { type: "text", value: `${content[ind]}` },
           origin: {
-            clientID: Number.MIN_SAFE_INTEGER,
+            clientID: MIN_UUIDv4,
             clock: Number.MIN_SAFE_INTEGER,
           },
           rightOrigin: {
-            clientID: Number.MAX_SAFE_INTEGER,
+            clientID: MAX_UUIDv4,
             clock: Number.MAX_SAFE_INTEGER,
           },
         } as InsertDelta)
@@ -352,7 +394,11 @@ describe("Multi-Client Conflict Resolution Tests", () => {
         current = current.rightOrigin;
       }
       // Should be ordered by clientID (B, C, D)
-      expect(values).toEqual(["A", "B", "C"]);
+      const sortedContent = sortByStringIndexOrder(
+        clients.map((client) => client.clientID),
+        content
+      );
+      expect(values).toEqual(sortedContent);
     });
   });
 
@@ -426,11 +472,12 @@ describe("Multi-Client Conflict Resolution Tests", () => {
     // Verify convergence
     clients.forEach((client, idx) => {
       const items = traverseDocument(ydocs[idx]);
-      expect(items.map((i) => (i.content as StringContent).value)).toEqual([
-        "Z",
-        "X",
-        "Y",
-      ]);
+      expect(items.map((i) => (i.content as StringContent).value)).toEqual(
+        sortByStringIndexOrder(
+          clients.map((c) => c.clientID),
+          ["Z", "X", "Y"]
+        )
+      );
     });
 
     // Verify all buffers are empty
@@ -534,7 +581,7 @@ describe("Full System Integration Test", () => {
       let conflictResolver: IConflictResolver = new ConflictResolver(ydocs[i]);
 
       let client: IClient = new Client(
-        i + 1,
+        `${i}`,
         0,
         svs[i],
         buffers[i][0],
@@ -575,17 +622,17 @@ describe("Full System Integration Test", () => {
     // Client 1 types "Hello"
     const helloOps = "Hello".split("").map((char, idx) => ({
       type: "insert" as const,
-      id: { clientID: 1, clock: idx + 1 },
+      id: { clientID: clients[0].clientID, clock: idx + 1 },
       content: { type: "text" as const, value: char },
       origin:
         idx === 0
           ? {
-              clientID: Number.MIN_SAFE_INTEGER,
+              clientID: MIN_UUIDv4,
               clock: Number.MIN_SAFE_INTEGER,
             }
-          : { clientID: 1, clock: idx },
+          : { clientID: clients[0].clientID, clock: idx },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     }));
@@ -593,17 +640,17 @@ describe("Full System Integration Test", () => {
     // Client 2 types "World" concurrently
     const worldOps = "World".split("").map((char, idx) => ({
       type: "insert" as const,
-      id: { clientID: 2, clock: idx + 1 },
+      id: { clientID: clients[1].clientID, clock: idx + 1 },
       content: { type: "text" as const, value: char },
       origin:
         idx === 0
           ? {
-              clientID: Number.MIN_SAFE_INTEGER,
+              clientID: MIN_UUIDv4,
               clock: Number.MIN_SAFE_INTEGER,
             }
-          : { clientID: 2, clock: idx },
+          : { clientID: clients[1].clientID, clock: idx },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     }));
@@ -630,18 +677,18 @@ describe("Full System Integration Test", () => {
     // Client 1 deletes 'H'
     const deleteH: DeleteDelta = {
       type: "delete",
-      id: { clientID: 1, clock: 6 },
-      itemID: { clientID: 1, clock: 1 },
+      id: { clientID: clients[0].clientID, clock: 6 },
+      itemID: { clientID: clients[0].clientID, clock: 1 },
     };
 
     // Client 2 inserts '!' at the end
     const insertExclamation: InsertDelta = {
       type: "insert",
-      id: { clientID: 2, clock: 6 },
+      id: { clientID: clients[1].clientID, clock: 6 },
       content: { type: "text", value: "!" },
-      origin: { clientID: 2, clock: 5 }, // After 'd' from "World"
+      origin: { clientID: clients[1].clientID, clock: 5 }, // After 'd' from "World"
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -649,10 +696,10 @@ describe("Full System Integration Test", () => {
     // Client 3 inserts space between words
     const insertSpace: InsertDelta = {
       type: "insert",
-      id: { clientID: 3, clock: 1 },
+      id: { clientID: clients[2].clientID, clock: 1 },
       content: { type: "text", value: " " },
-      origin: { clientID: 1, clock: 5 }, // After "Hello"
-      rightOrigin: { clientID: 2, clock: 1 }, // Before "World"
+      origin: { clientID: clients[0].clientID, clock: 5 }, // After "Hello"
+      rightOrigin: { clientID: clients[1].clientID, clock: 1 }, // Before "World"
     };
 
     // Apply concurrent operations
@@ -686,6 +733,7 @@ describe("Full System Integration Test", () => {
     };
 
     // All documents should have same content
+
     const expectedContent = "ello World!";
     clients.forEach((_, idx) => {
       expect(getContent(ydocs[idx])).toBe(expectedContent);
@@ -693,9 +741,9 @@ describe("Full System Integration Test", () => {
 
     // Verify state vectors are synchronized
     const expectedStateVector = new Map([
-      [1, 6], // Client 1: 5 inserts + 1 delete
-      [2, 6], // Client 2: 5 inserts + 1 insert
-      [3, 1], // Client 3: 1 insert
+      [clients[0].clientID, 6], // Client 1: 5 inserts + 1 delete
+      [clients[1].clientID, 6], // Client 2: 5 inserts + 1 insert
+      [clients[2].clientID, 1], // Client 3: 1 insert
     ]);
 
     clients.forEach((client, idx) => {
@@ -716,36 +764,36 @@ describe("Full System Integration Test", () => {
     // Phase 1: Create complex dependency chain
     const op1: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: clients[0].clientID, clock: 1 },
       content: { type: "text", value: "A" },
       origin: {
-        clientID: Number.MIN_SAFE_INTEGER,
+        clientID: MIN_UUIDv4,
         clock: Number.MIN_SAFE_INTEGER,
       },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
 
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 2, clock: 1 },
+      id: { clientID: clients[1].clientID, clock: 1 },
       content: { type: "text", value: "B" },
       origin: op1.id,
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
 
     const op3: InsertDelta = {
       type: "insert",
-      id: { clientID: 3, clock: 1 },
+      id: { clientID: clients[2].clientID, clock: 1 },
       content: { type: "text", value: "C" },
       origin: op2.id,
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -758,13 +806,13 @@ describe("Full System Integration Test", () => {
     // Phase 2: Concurrent deletions of same item
     const delete1: DeleteDelta = {
       type: "delete",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: clients[0].clientID, clock: 2 },
       itemID: op1.id,
     };
 
     const delete2: DeleteDelta = {
       type: "delete",
-      id: { clientID: 2, clock: 2 },
+      id: { clientID: clients[1].clientID, clock: 2 },
       itemID: op1.id,
     };
 
@@ -775,7 +823,7 @@ describe("Full System Integration Test", () => {
     // Phase 3: Insert between deleted items
     const insertBetween: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 3 },
+      id: { clientID: clients[0].clientID, clock: 3 },
       content: { type: "text", value: "X" },
       origin: op1.id,
       rightOrigin: op2.id,
@@ -794,22 +842,22 @@ describe("Full System Integration Test", () => {
     // Phase 5: More concurrent operations during partition
     const partitionOps1: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 4 },
+      id: { clientID: clients[0].clientID, clock: 4 },
       content: { type: "text", value: "Y" },
       origin: op3.id,
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
 
     const partitionOps2: InsertDelta = {
       type: "insert",
-      id: { clientID: 3, clock: 2 },
+      id: { clientID: clients[2].clientID, clock: 2 },
       content: { type: "text", value: "Z" },
       origin: op3.id,
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -844,11 +892,11 @@ describe("Full System Integration Test", () => {
       id: { clientID: client.clientID, clock: 1 },
       content: { type: "text" as const, value: String(i) },
       origin: {
-        clientID: Number.MIN_SAFE_INTEGER,
+        clientID: MIN_UUIDv4,
         clock: Number.MIN_SAFE_INTEGER,
       },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     }));
@@ -859,11 +907,11 @@ describe("Full System Integration Test", () => {
     // 2. Create long dependency chain
     const chainOps = Array.from({ length: 50 }, (_, i) => ({
       type: "insert" as const,
-      id: { clientID: 1, clock: i + 2 },
+      id: { clientID: clients[0].clientID, clock: i + 2 },
       content: { type: "text" as const, value: "x" },
-      origin: { clientID: 1, clock: i + 1 },
+      origin: { clientID: clients[0].clientID, clock: i + 1 },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     }));

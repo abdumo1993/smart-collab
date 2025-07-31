@@ -10,7 +10,8 @@ interface IMidOpConvertor {
 }
 
 interface QDelta {
-  ops: QdeltaType[];
+  // because quill updateContent or setContent don't work with flattend array of attomic ops
+  ops: QdeltaType[][];
 }
 
 interface midDelta {

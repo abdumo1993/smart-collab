@@ -41,7 +41,14 @@ import {
   IBlockHandler,
 } from "./iterfaces";
 import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { v4 as uuidv4 } from "uuid";
 
+const cID = uuidv4();
+const cID1 = uuidv4();
+const cID2 = uuidv4();
+const cID3 = uuidv4();
+const MIN_UUIDv4 = "";
+const MAX_UUIDv4 = "z";
 describe("DocStructure Tests", () => {
   let ydoc: IDocStructure;
   let helper: IHelper;
@@ -64,7 +71,7 @@ describe("DocStructure Tests", () => {
         ydoc.head,
         {
           type: "insert",
-          id: { clientID: 1, clock: 1 },
+          id: { clientID: cID, clock: 1 },
           content: { type: "text", value: "A" },
           origin: ydoc.head.id,
           rightOrigin: ydoc.tail.id,
@@ -78,7 +85,7 @@ describe("DocStructure Tests", () => {
     });
 
     test("should return null for non-existent ID", () => {
-      const found = ydoc.traverse(ydoc.head, { clientID: 999, clock: 999 });
+      const found = ydoc.traverse(ydoc.head, { clientID: "999", clock: 999 });
       expect(found).toBeNull();
     });
   });
@@ -106,7 +113,7 @@ describe("DocStructure Tests", () => {
     test("should create item with correct structure", () => {
       const op: InsertDelta = {
         type: "insert",
-        id: { clientID: 1, clock: 1 },
+        id: { clientID: cID, clock: 1 },
         content: { type: "text", value: "Test" },
         origin: ydoc.head.id,
         rightOrigin: ydoc.tail.id,
@@ -166,7 +173,7 @@ describe("Client Tests", () => {
     ];
 
     client = new Client(
-      1,
+      cID,
       0,
       stateVector,
       oBuffer,
@@ -180,68 +187,68 @@ describe("Client Tests", () => {
     test("should update state vector with new operations", () => {
       const op: InsertDelta = {
         type: "insert",
-        id: { clientID: 1, clock: 1 },
+        id: { clientID: cID, clock: 1 },
         content: { type: "text", value: "a" },
         origin: {
-          clientID: Number.MIN_SAFE_INTEGER,
+          clientID: MIN_UUIDv4,
           clock: Number.MIN_SAFE_INTEGER,
         },
         rightOrigin: {
-          clientID: Number.MAX_SAFE_INTEGER,
+          clientID: MAX_UUIDv4,
           clock: Number.MAX_SAFE_INTEGER,
         },
       };
 
       client.applyOps([op]);
-      expect(stateVector.get(1)).toBe(1);
+      expect(stateVector.get(cID)).toBe(1);
     });
 
     test("should detect new operations correctly", () => {
       const op: InsertDelta = {
         type: "insert",
-        id: { clientID: 1, clock: 1 },
+        id: { clientID: cID, clock: 1 },
         content: { type: "text", value: "a" },
-        origin: { clientID: 0, clock: 0 },
-        rightOrigin: { clientID: 2, clock: 0 },
+        origin: { clientID: cID1, clock: 0 },
+        rightOrigin: { clientID: cID2, clock: 0 },
       };
 
-      stateVector.update(1, 0);
+      stateVector.update(cID, 0);
       expect(stateVector.isNewOperation(op)).toBe(true);
 
-      stateVector.update(1, 2);
+      stateVector.update(cID, 2);
       expect(stateVector.isNewOperation(op)).toBe(true);
 
-      stateVector.update(1, 1);
+      stateVector.update(cID, 1);
       expect(stateVector.isNewOperation(op)).toBe(false);
     });
 
     test("should merge state vectors correctly", () => {
       const otherStateVector = new Map([
-        [1, 5],
-        [2, 3],
+        [cID, 5],
+        [cID2, 3],
       ]);
 
-      stateVector.update(1, 3);
-      stateVector.update(2, 4);
+      stateVector.update(cID, 3);
+      stateVector.update(cID2, 4);
 
       stateVector.merge(otherStateVector);
 
-      expect(stateVector.get(1)).toBe(5);
-      expect(stateVector.get(2)).toBe(4);
+      expect(stateVector.get(cID)).toBe(5);
+      expect(stateVector.get(cID2)).toBe(4);
     });
 
     test("should get missing ops correctly", () => {
       const op1: InsertDelta = {
         type: "insert",
-        id: { clientID: 1, clock: 1 },
+        id: { clientID: cID, clock: 1 },
         content: { type: "text", value: "a" },
-        origin: { clientID: 0, clock: 0 },
-        rightOrigin: { clientID: 2, clock: 0 },
+        origin: { clientID: cID1, clock: 0 },
+        rightOrigin: { clientID: cID2, clock: 0 },
       };
       // const clientOps = new Store();
       store.set(op1.id.clientID, op1.id.clock, op1);
 
-      const otherStateVector = new Map([[1, 0]]);
+      const otherStateVector = new Map([[cID, 0]]);
       const missingOps = store.getMissingOps(otherStateVector);
 
       expect(missingOps).toHaveLength(1);
@@ -253,10 +260,10 @@ describe("Client Tests", () => {
     test("should add operations to origin buffer", () => {
       const op: InsertDelta = {
         type: "insert",
-        id: { clientID: 1, clock: 1 },
+        id: { clientID: cID, clock: 1 },
         content: { type: "text", value: "a" },
-        origin: { clientID: 0, clock: 0 },
-        rightOrigin: { clientID: 2, clock: 0 },
+        origin: { clientID: cID1, clock: 0 },
+        rightOrigin: { clientID: cID2, clock: 0 },
       };
 
       oBuffer.add(helper.stringifyYjsID(op.origin), op);
@@ -266,10 +273,10 @@ describe("Client Tests", () => {
     test("should add operations to right buffer", () => {
       const op: InsertDelta = {
         type: "insert",
-        id: { clientID: 1, clock: 1 },
+        id: { clientID: cID, clock: 1 },
         content: { type: "text", value: "a" },
-        origin: { clientID: 0, clock: 0 },
-        rightOrigin: { clientID: 2, clock: 0 },
+        origin: { clientID: cID1, clock: 0 },
+        rightOrigin: { clientID: cID2, clock: 0 },
       };
 
       rBuffer.add(helper.stringifyYjsID(op.rightOrigin), op);
@@ -280,8 +287,8 @@ describe("Client Tests", () => {
     test("should add delete operations to target buffer", () => {
       const op: DeleteDelta = {
         type: "delete",
-        id: { clientID: 1, clock: 1 },
-        itemID: { clientID: 0, clock: 0 },
+        id: { clientID: cID, clock: 1 },
+        itemID: { clientID: cID1, clock: 0 },
       };
 
       tBuffer.add(helper.stringifyYjsID(op.itemID), op);
@@ -292,7 +299,7 @@ describe("Client Tests", () => {
 
 describe("Item Tests", () => {
   test("should create item with correct properties", () => {
-    const id: YjsID = { clientID: 1, clock: 1 };
+    const id: YjsID = { clientID: cID, clock: 1 };
     const content: Content = { type: "text", value: "test" };
     const item: IDocumentItem = {
       id: id,
@@ -375,7 +382,7 @@ describe("Garbage collection Tests", () => {
     ];
 
     client = new Client(
-      1,
+      cID,
       0,
       stateVector,
       oBuffer,
@@ -386,27 +393,27 @@ describe("Garbage collection Tests", () => {
     );
     mockAllVectors = new Map<YjsID["clientID"], StateVector>([
       [
-        1,
+        cID,
         new Map([
-          [1, 3],
-          [2, 4],
-          [3, 2],
+          [cID, 3],
+          [cID2, 4],
+          [cID3, 2],
         ]),
       ],
       [
-        2,
+        cID2,
         new Map([
-          [1, 2],
-          [2, 1],
-          [3, 3],
+          [cID, 2],
+          [cID2, 1],
+          [cID3, 3],
         ]),
       ],
       [
-        3,
+        cID3,
         new Map([
-          [1, 1],
-          [2, 2],
-          [3, 5],
+          [cID, 1],
+          [cID2, 2],
+          [cID3, 5],
         ]),
       ],
     ]);
@@ -447,18 +454,18 @@ describe("Garbage collection Tests", () => {
      */
     test("Should calculate safeVector (min value for each client)", () => {
       const safeVector = safeVectorCalculator.getSafeVector(mockAllVectors);
-      expect(safeVector?.get(1)).toBe(1);
-      expect(safeVector?.get(2)).toBe(1);
-      expect(safeVector?.get(3)).toBe(2);
+      expect(safeVector?.get(cID)).toBe(1);
+      expect(safeVector?.get(cID2)).toBe(1);
+      expect(safeVector?.get(cID3)).toBe(2);
     });
   });
   describe("ReferenceAnalyser Tests", () => {
     const id1: YjsID = {
-      clientID: 1,
+      clientID: cID,
       clock: 1,
     };
     const id2: YjsID = {
-      clientID: 2,
+      clientID: cID2,
       clock: 1,
     };
     test("Should register, check reference and remove referencer", () => {
@@ -482,11 +489,11 @@ describe("Garbage collection Tests", () => {
 
   describe("IncreamentalGC (GarbageEngine) Tests", () => {
     const id1: YjsID = {
-      clientID: 1,
+      clientID: cID,
       clock: 1,
     };
     const id2: YjsID = {
-      clientID: 2,
+      clientID: cID2,
       clock: 1,
     };
     test("Should process ", () => {
@@ -566,7 +573,7 @@ describe("Block Classes Tests", () => {
     ];
 
     client = new Client(
-      1,
+      cID,
       0,
       stateVector,
       oBuffer,
@@ -590,7 +597,7 @@ describe("Block Classes Tests", () => {
   test("Creates a new block for new line characters", () => {
     const op: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: ydoc.tail.id,
@@ -607,14 +614,14 @@ describe("Block Classes Tests", () => {
   test("Add characters to existing block", () => {
     const op: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: ydoc.tail.id,
     };
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "hello" },
       origin: ydoc.head.id,
       rightOrigin: op.id,
@@ -630,21 +637,21 @@ describe("Block Classes Tests", () => {
   test("Add a new Block before an existing block", () => {
     const op: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: ydoc.tail.id,
     };
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "hello" },
       origin: ydoc.head.id,
       rightOrigin: op.id,
     };
     const op3: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 3 },
+      id: { clientID: cID, clock: 3 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: op2.id,
@@ -661,7 +668,7 @@ describe("Block Classes Tests", () => {
 
     const op4: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 4 },
+      id: { clientID: cID, clock: 4 },
       content: { type: "text", value: "\n" },
       origin: op3.id,
       rightOrigin: op2.id,
@@ -679,21 +686,21 @@ describe("Block Classes Tests", () => {
   test("Handle deletion", () => {
     const op: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: ydoc.tail.id,
     };
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "hello" },
       origin: ydoc.head.id,
       rightOrigin: op.id,
     };
     const op3: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 3 },
+      id: { clientID: cID, clock: 3 },
       content: {
         type: "text",
         value: "\n",
@@ -706,12 +713,12 @@ describe("Block Classes Tests", () => {
     };
     const op4: DeleteDelta = {
       type: "delete",
-      id: { clientID: 1, clock: 4 },
+      id: { clientID: cID, clock: 4 },
       itemID: op3.id,
     };
     const op5: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 5 },
+      id: { clientID: cID, clock: 5 },
       content: { type: "text", value: "world" },
       origin: ydoc.head.id,
       rightOrigin: op3.id,
@@ -733,21 +740,21 @@ describe("Block Classes Tests", () => {
   test("Handle attribute distribution at deletion", () => {
     const op: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: ydoc.tail.id,
     };
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "hello" },
       origin: ydoc.head.id,
       rightOrigin: op.id,
     };
     const op3: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 3 },
+      id: { clientID: cID, clock: 3 },
       content: {
         type: "text",
         value: "\n",
@@ -761,7 +768,7 @@ describe("Block Classes Tests", () => {
 
     const op4: DeleteDelta = {
       type: "delete",
-      id: { clientID: 1, clock: 4 },
+      id: { clientID: cID, clock: 4 },
       itemID: op3.id,
     };
     client.applyOps([op, op2, op3]);
@@ -776,21 +783,21 @@ describe("Block Classes Tests", () => {
   test("Find block based on string length", () => {
     const op: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 1 },
+      id: { clientID: cID, clock: 1 },
       content: { type: "text", value: "\n" },
       origin: ydoc.head.id,
       rightOrigin: ydoc.tail.id,
     };
     const op2: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 2 },
+      id: { clientID: cID, clock: 2 },
       content: { type: "text", value: "hello" },
       origin: ydoc.head.id,
       rightOrigin: op.id,
     };
     const op3: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 3 },
+      id: { clientID: cID, clock: 3 },
       content: {
         type: "text",
         value: "\n",
@@ -804,7 +811,7 @@ describe("Block Classes Tests", () => {
 
     const op4: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 4 },
+      id: { clientID: cID, clock: 4 },
       content: {
         type: "text",
         value: "new",
@@ -814,7 +821,7 @@ describe("Block Classes Tests", () => {
     };
     const op5: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 5 },
+      id: { clientID: cID, clock: 5 },
       content: {
         type: "text",
         value: "\n",
@@ -825,7 +832,7 @@ describe("Block Classes Tests", () => {
 
     const op6: InsertDelta = {
       type: "insert",
-      id: { clientID: 1, clock: 6 },
+      id: { clientID: cID, clock: 6 },
       content: {
         type: "text",
         value: "very",

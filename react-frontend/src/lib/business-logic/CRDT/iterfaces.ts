@@ -1,10 +1,10 @@
 // core types
 type YjsID = {
-  clientID: number;
+  clientID: string;
   clock: number;
 };
 
-type StateVector = Map<number, number>;
+type StateVector = Map<YjsID["clientID"], number>;
 
 // content types
 interface ContentBase {
@@ -67,14 +67,14 @@ interface IOperationStore {
   set(clientID: YjsID["clientID"], clock: YjsID["clock"], op: Delta): void;
   delete(clientID: YjsID["clientID"], clock: YjsID["clock"]): boolean;
   getAllOps(): IterableIterator<Delta>;
-  getMissingOps(other: StateVector): Delta[];
 }
 
-interface IBufferStore {
+interface IBufferStore<T> {
   add(key: string, op: Delta): void;
   get(key: string): Delta[] | undefined;
   getSize(): number;
   remove(key: string): void;
+  getAll(): T;
 }
 // Document interfaces
 // block that will hold IDocumentItems.
@@ -150,6 +150,7 @@ interface IBlockHandler {
 
 // state vector
 interface IStateVectorManager {
+  missingOps?: Set<string>;
   update(clientID: YjsID["clientID"], clock: YjsID["clock"]): void;
   merge(other: StateVector): void;
   get(clientID: YjsID["clientID"]): YjsID["clock"] | undefined;

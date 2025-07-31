@@ -58,12 +58,15 @@ import {
 } from "./interfaces";
 
 import { describe, test, expect, beforeEach } from "@jest/globals";
+import { v4 as uuidv4 } from "uuid";
 
+const MIN_UUIDv4 = "";
+const MAX_UUIDv4 = "z";
 describe("Quill-CRDT Operation Conversion", () => {
   let clients: IClient[];
   let ydocs: IDocStructure[];
   let stores: IOperationStore[];
-  let buffers: Array<Array<IBufferStore>>;
+  let buffers: Array<Array<IBufferStore<Map<string, Delta[]>>>>;
   let svs: IStateVectorManager[];
   let handlerConfigs: IHandlerConfig[];
   let convertors: IOperationConverter[];
@@ -239,7 +242,7 @@ describe("Quill-CRDT Operation Conversion", () => {
       ];
 
       let client: IClient = new Client(
-        i + 1,
+        uuidv4(),
         0,
         svs[i],
         buffers[i][0],
@@ -294,11 +297,11 @@ describe("Quill-CRDT Operation Conversion", () => {
       type: "insert",
       content: { type: "text", value: "\n" },
       origin: {
-        clientID: Number.MIN_SAFE_INTEGER,
+        clientID: MIN_UUIDv4,
         clock: Number.MIN_SAFE_INTEGER,
       },
       rightOrigin: {
-        clientID: Number.MAX_SAFE_INTEGER,
+        clientID: MAX_UUIDv4,
         clock: Number.MAX_SAFE_INTEGER,
       },
     };
@@ -316,7 +319,7 @@ describe("Quill-CRDT Operation Conversion", () => {
         type: "insert",
         content: { type: "text", value: val },
         origin: {
-          clientID: Number.MIN_SAFE_INTEGER,
+          clientID: MIN_UUIDv4,
           clock: Number.MIN_SAFE_INTEGER,
         },
         rightOrigin: insertNewLine.id,
@@ -351,7 +354,7 @@ describe("Quill-CRDT Operation Conversion", () => {
           },
 
           origin: {
-            clientID: Number.MIN_SAFE_INTEGER,
+            clientID: MIN_UUIDv4,
             clock: Number.MIN_SAFE_INTEGER,
           },
           rightOrigin: {
@@ -498,12 +501,12 @@ describe("Quill-CRDT Operation Conversion", () => {
         const deltas = convertors[0].QtoCrdt(highOp);
 
         const compOp: InsertDelta = {
-          id: { clientID: 1, clock: 9 },
+          id: { clientID: clients[0].clientID, clock: 9 },
           type: "insert",
           content: { type: "text", value: "op2" },
-          origin: { clientID: 1, clock: 1 },
+          origin: { clientID: clients[0].clientID, clock: 1 },
           rightOrigin: {
-            clientID: Number.MAX_SAFE_INTEGER,
+            clientID: MAX_UUIDv4,
             clock: Number.MAX_SAFE_INTEGER,
           },
         };
@@ -710,25 +713,25 @@ describe("Quill-CRDT Operation Conversion", () => {
             id: { clientID: cID, clock: clients[0].clock - 3 },
             type: "insert",
             content: { type: "text", value: "b" },
-            origin: { clientID: 1, clock: 2 },
-            rightOrigin: { clientID: 1, clock: 4 },
+            origin: { clientID: cID, clock: 2 },
+            rightOrigin: { clientID: cID, clock: 4 },
           } as InsertDelta,
           {
             id: { clientID: cID, clock: clients[0].clock - 2 },
             type: "delete",
-            itemID: { clientID: 1, clock: 4 },
+            itemID: { clientID: cID, clock: 4 },
           } as DeleteDelta,
           {
             id: { clientID: cID, clock: clients[0].clock - 1 },
             type: "delete",
-            itemID: { clientID: 1, clock: 5 },
+            itemID: { clientID: cID, clock: 5 },
           } as DeleteDelta,
           {
             id: { clientID: cID, clock: clients[0].clock - 0 },
             type: "insert",
             content: { type: "text", value: "h" },
-            origin: { clientID: 1, clock: 4 },
-            rightOrigin: { clientID: 1, clock: 6 },
+            origin: { clientID: cID, clock: 4 },
+            rightOrigin: { clientID: cID, clock: 6 },
           } as InsertDelta,
         ];
         let pass: boolean = true;
@@ -824,15 +827,15 @@ describe("Quill-CRDT Operation Conversion", () => {
         const cID = clients[0].clientID;
         const dComp: DeleteDelta = {
           type: "delete",
-          id: { clientID: 1, clock: clients[0].clock - 1 },
-          itemID: { clientID: 1, clock: 3 },
+          id: { clientID: cID, clock: clients[0].clock - 1 },
+          itemID: { clientID: cID, clock: 3 },
         };
         const iComp: InsertDelta = {
           type: "insert",
           content: { type: "text", value: "bc", attributes: { bold: true } },
           id: { clientID: cID, clock: clients[0].clock },
-          origin: { clientID: 1, clock: 2 },
-          rightOrigin: { clientID: 1, clock: 4 },
+          origin: { clientID: cID, clock: 2 },
+          rightOrigin: { clientID: cID, clock: 4 },
         };
 
         let pass: boolean =
@@ -860,10 +863,11 @@ describe("Quill-CRDT Operation Conversion", () => {
         };
 
         const deltas = convertors[0].QtoCrdt(highOp);
+        const cID = clients[0].clientID;
         const dComp: DeleteDelta = {
           type: "delete",
-          id: { clientID: 1, clock: clients[0].clock - 1 },
-          itemID: { clientID: 1, clock: 7 },
+          id: { clientID: cID, clock: clients[0].clock - 1 },
+          itemID: { clientID: cID, clock: 7 },
         };
         const iComp: InsertDelta = {
           type: "insert",
@@ -872,9 +876,9 @@ describe("Quill-CRDT Operation Conversion", () => {
             value: "jklmno",
             attributes: { italic: null },
           },
-          id: { clientID: 1, clock: clients[0].clock },
-          origin: { clientID: 1, clock: 6 },
-          rightOrigin: { clientID: 1, clock: 8 },
+          id: { clientID: cID, clock: clients[0].clock },
+          origin: { clientID: cID, clock: 6 },
+          rightOrigin: { clientID: cID, clock: 8 },
         };
         // console.log(...deltas, dComp, iComp);
 
@@ -905,11 +909,11 @@ describe("Quill-CRDT Operation Conversion", () => {
         };
 
         const deltas = convertors[0].QtoCrdt(highOp);
-
+        const cID = clients[0].clientID;
         const dComp: DeleteDelta = {
           type: "delete",
-          id: { clientID: 1, clock: clients[0].clock - 2 },
-          itemID: { clientID: 1, clock: 7 },
+          id: { clientID: cID, clock: clients[0].clock - 2 },
+          itemID: { clientID: cID, clock: 7 },
         };
         const iComp1: InsertDelta = {
           type: "insert",
@@ -918,9 +922,9 @@ describe("Quill-CRDT Operation Conversion", () => {
             value: "jklmn",
             attributes: { italic: null },
           },
-          id: { clientID: 1, clock: clients[0].clock - 1 },
-          origin: { clientID: 1, clock: 6 },
-          rightOrigin: { clientID: 1, clock: 8 },
+          id: { clientID: cID, clock: clients[0].clock - 1 },
+          origin: { clientID: cID, clock: 6 },
+          rightOrigin: { clientID: cID, clock: 8 },
         };
         const iComp2: InsertDelta = {
           type: "insert",
@@ -929,9 +933,9 @@ describe("Quill-CRDT Operation Conversion", () => {
             value: "o",
             attributes: { italic: true },
           },
-          id: { clientID: 1, clock: clients[0].clock },
-          origin: { clientID: 1, clock: 6 },
-          rightOrigin: { clientID: 1, clock: 8 },
+          id: { clientID: cID, clock: clients[0].clock },
+          origin: { clientID: cID, clock: 6 },
+          rightOrigin: { clientID: cID, clock: 8 },
         };
 
         // console.log(...deltas, dComp, iComp1, iComp2);
@@ -960,37 +964,37 @@ describe("Quill-CRDT Operation Conversion", () => {
 
         const deltas = convertors[0].QtoCrdt(highOp);
         // console.log(...deltas);
-
+        const cID = clients[0].clientID;
         const dComp1: DeleteDelta = {
           type: "delete",
-          id: { clientID: 1, clock: clients[0].clock - 4 },
-          itemID: { clientID: 1, clock: 3 },
+          id: { clientID: cID, clock: clients[0].clock - 4 },
+          itemID: { clientID: cID, clock: 3 },
         };
         const iComp1: InsertDelta = {
           type: "insert",
           content: { type: "text", value: "bc", attributes: { italic: true } },
-          id: { clientID: 1, clock: clients[0].clock - 3 },
-          origin: { clientID: 1, clock: 2 },
-          rightOrigin: { clientID: 1, clock: 4 },
+          id: { clientID: cID, clock: clients[0].clock - 3 },
+          origin: { clientID: cID, clock: 2 },
+          rightOrigin: { clientID: cID, clock: 4 },
         };
         const dComp2: DeleteDelta = {
           type: "delete",
-          id: { clientID: 1, clock: clients[0].clock - 2 },
-          itemID: { clientID: 1, clock: 4 },
+          id: { clientID: cID, clock: clients[0].clock - 2 },
+          itemID: { clientID: cID, clock: 4 },
         };
         const iComp2: InsertDelta = {
           type: "insert",
           content: { type: "text", value: "d", attributes: { italic: true } },
-          id: { clientID: 1, clock: clients[0].clock - 1 },
-          origin: { clientID: 1, clock: 3 },
-          rightOrigin: { clientID: 1, clock: 5 },
+          id: { clientID: cID, clock: clients[0].clock - 1 },
+          origin: { clientID: cID, clock: 3 },
+          rightOrigin: { clientID: cID, clock: 5 },
         };
         const iComp3: InsertDelta = {
           type: "insert",
           content: { type: "text", value: "ef" },
-          id: { clientID: 1, clock: clients[0].clock - 0 },
-          origin: { clientID: 1, clock: 3 },
-          rightOrigin: { clientID: 1, clock: 5 },
+          id: { clientID: cID, clock: clients[0].clock - 0 },
+          origin: { clientID: cID, clock: 3 },
+          rightOrigin: { clientID: cID, clock: 5 },
         };
         let pass: boolean =
           equalDeleteDeltas(dComp1, deltas[0] as DeleteDelta) &&

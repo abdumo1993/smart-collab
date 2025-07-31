@@ -35,7 +35,7 @@ class OperationConvertor implements IOperationConverter {
   }
 
   QtoCrdt(qDelta: QDelta): Delta[] {
-    const raw = this.qToMidDelta(qDelta.ops);
+    const raw = this.qToMidDelta(qDelta.ops.flat());
     const deltas: Delta[] = [];
     raw.ops.forEach((elem: midDelta) => {
       const convertor = this.convertors.get(elem.type!);
@@ -47,14 +47,14 @@ class OperationConvertor implements IOperationConverter {
     return deltas;
   }
   CrdttoQ(deltas: Delta[]): QDelta {
-    const ops: QdeltaType[] = [];
+    const ops: QdeltaType[][] = [];
     const qDelta: QDelta = { ops: ops };
 
     deltas.forEach((elem, ind) => {
       const convertor = this.convertors.get(elem.type!);
       if (!convertor)
         throw new ConversionError(`No convertor for ${elem.type} operations`);
-      ops.push(...convertor.toQ(elem));
+      ops.push(convertor.toQ(elem));
     });
     return qDelta;
   }
@@ -348,7 +348,7 @@ class DeleteOperationConvertor implements IMidOpConvertor {
           prev && (prev = prev.origin!));
       }
       // if tail, no origin no deletion, no link error?
-      if (!curr.rightOrigin?.rightOrigin) return [];
+      if (!curr.rightOrigin) return [];
 
       return this.divideDelete(remaining, dLen, prev ?? curr);
     } catch (e) {
