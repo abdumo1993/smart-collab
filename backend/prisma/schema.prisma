@@ -3,7 +3,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -11,66 +10,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+enum Role {
+  ADMIN
+  CONSUMER
+}
+
+enum Permission {
+  OWNER
+  VIEWER
+  EDITOR
+}
+
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String?
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  documents Document[] // Documents owned by this user
+  id             String            @id @default(uuid())
+  firstName      String
+  lastName       String
+  email          String         @unique
+  password       String
+  role           Role
+  createdAt      DateTime       @default(now())
+  phone          String?
+  updatedAt      DateTime       @updatedAt
+  documents      Document[] // Documents owned by this user
   collaborations Collaborator[] // Documents this user collaborates on
-  messages  Message[] // Messages sent by this user
+  messages       Message[] // Messages sent by this user
+  repos          String[]
+  // Email confirmation and password reset
+  isEmailConfirmed      Boolean   @default(false)
+  emailConfirmationToken String?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  // OAuth2
+  oauthAccounts         OAuthAccount[]
 }
 
 model Document {
-  id        Int      @id @default(autoincrement())
-  title     String
-  ownerId   Int
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String         @id @default(uuid())
+  title         String
+  ownerId       String
+  owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   collaborators Collaborator[] // Users who can collaborate on this document
-  messages Message[]
+  messages      Message[]
+  ops           Operation[] // Operations associated with this document
+}
 
-  state     DocumentState? // Optional: CRDT state for persistence
+model Operation {
+  id          String   @id @default(uuid())
+  clientId    String
+  clock       Int
+  type        String
+  content     Bytes // Stores the serialized Content (e.g., JSON or binary)
+  origin      String?
+  rightOrigin String?
+  itemID      String?
+  documentId  String?
+  document    Document? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Collaborator {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  documentId Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  document  Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  role      Role     @default(EDITOR) // e.g., OWNER, EDITOR  EDITOR, VIEWER
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String     @id @default(uuid())
+  userId     String
+  documentId String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document   Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  permission Permission @default(VIEWER)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   @@unique([userId, documentId]) // A user can only collaborate on a document once
 }
 
-model DocumentState {
-  id        Int      @id @default(autoincrement())
-  documentId Int      @unique // One state per document
-  document  Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  state     Bytes    // Stores the CRDT state (e.g., Yjs state as binary data)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 model Message {
-  id        Int      @id @default(autoincrement())
-  content   String
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  documentId Int
-  document  Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  content    String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  position   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
-enum Role {
-  OWNER
-  EDITOR
-  VIEWER
+
+// ========== RefreshToken ==========
+model RefreshToken {
+  refreshTokenId String   @id @default(uuid())
+  userId         String
+  token          String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+}
+
+model OAuthAccount {
+  id                String   @id @default(uuid())
+  provider          String
+  providerAccountId String
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
 }
