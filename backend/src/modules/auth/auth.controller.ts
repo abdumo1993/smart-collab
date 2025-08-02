@@ -16,13 +16,7 @@ import {
   GetOAuthAccountsDocs,
   UnlinkOAuthAccountDocs,
 } from '../../common/decorators/swagger/oauth.swagger.docs';
-import {
-  LoginDto,
-  RegisterDto,
-  TokensDto,
-  OAuthCallbackDto,
-  OAuthAccountDto,
-} from './dtos';
+import { LoginDto, RegisterDto, TokensDto, OAuthAccountDto } from './dtos';
 import { User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { UserService } from '../user/user.service';
@@ -51,7 +45,6 @@ import {
   EmailConfirmationDto,
   ForgotPasswordDto,
   ResetPasswordDto,
-  OAuthLoginDto,
   CreateUserDto,
 } from '../user/dtos';
 import { AuthGuard } from '@nestjs/passport';
@@ -192,76 +185,6 @@ export class AuthController {
     };
     const tokens = await this.authService.login(loginDto);
     return ApiResponse.success(200, tokens, 'Teacher login successful');
-  }
-
-  // ========== OAuth2 Endpoints ==========
-
-  @Get('github')
-  @Public()
-  @GitHubAuthDocs()
-  @UseGuards(AuthGuard('github'))
-  async githubAuth() {
-    // This will redirect to GitHub OAuth
-    // The guard handles the redirect automatically
-  }
-
-  @Get('github/callback')
-  @Public()
-  @GitHubCallbackDocs()
-  @UseGuards(AuthGuard('github'))
-  async githubCallback(
-    @Req() req: Request,
-  ): Promise<ApiResponse<OAuthCallbackDto>> {
-    try {
-      const user = req.user as AuthenticatedUserPayload;
-      const response = await this.authService.createOAuthCallbackResponse(
-        user,
-        'github',
-      );
-
-      return ApiResponse.success(
-        200,
-        response,
-        'GitHub OAuth login successful',
-      );
-    } catch (error) {
-      this.logger.error(`GitHub OAuth callback failed: ${error.message}`);
-      throw new UnauthorizedException('GitHub OAuth authentication failed');
-    }
-  }
-
-  @Get('google')
-  @Public()
-  @GoogleAuthDocs()
-  @UseGuards(AuthGuard('google'))
-  async googleAuth() {
-    // This will redirect to Google OAuth
-    // The guard handles the redirect automatically
-  }
-
-  @Get('google/callback')
-  @Public()
-  @GoogleCallbackDocs()
-  @UseGuards(AuthGuard('google'))
-  async googleCallback(
-    @Req() req: Request,
-  ): Promise<ApiResponse<OAuthCallbackDto>> {
-    try {
-      const user = req.user as AuthenticatedUserPayload;
-      const response = await this.authService.createOAuthCallbackResponse(
-        user,
-        'google',
-      );
-
-      return ApiResponse.success(
-        200,
-        response,
-        'Google OAuth login successful',
-      );
-    } catch (error) {
-      this.logger.error(`Google OAuth callback failed: ${error.message}`);
-      throw new UnauthorizedException('Google OAuth authentication failed');
-    }
   }
 
   // Get OAuth accounts for the authenticated user

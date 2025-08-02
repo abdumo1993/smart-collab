@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UserService } from '../user/user.service';
 import { TokensService } from './tokens.service';
-import { LoginDto, RegisterDto, TokensDto, OAuthCallbackDto } from './dtos';
+import { LoginDto, RegisterDto, TokensDto } from './dtos';
 import { IAuthService } from '../__interfaces__/auth.service.interface';
 import { Role } from '@prisma/client';
 import { AuthenticatedUserPayload } from '@/common/request/express.request';
@@ -114,68 +114,5 @@ export class AuthService implements IAuthService {
 
     await this.tokensService.saveRefreshToken(user.userId, tokens.refreshToken);
     return tokens;
-  }
-
-  async validateOAuthUser(oauthData: {
-    provider: string;
-    providerId: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    accessToken: string;
-  }): Promise<AuthenticatedUserPayload> {
-    this.logger.log(
-      `Validating OAuth user for ${oauthData.provider}: ${oauthData.email}`,
-    );
-
-    const user = await this.usersService.oauthLoginWithUserInfo(
-      oauthData.provider,
-      {
-        email: oauthData.email,
-        firstName: oauthData.firstName,
-        lastName: oauthData.lastName,
-        providerId: oauthData.providerId,
-      },
-    );
-
-    return {
-      sub: user.userId,
-      email: user.email,
-      role: user.role,
-    };
-  }
-
-  async generateOAuthTokens(
-    user: AuthenticatedUserPayload,
-  ): Promise<TokensDto> {
-    this.logger.log(`Generating OAuth tokens for user: ${user.sub}`);
-
-    const tokens = await this.tokensService.generateTokens(
-      user.sub,
-      user.email,
-      user.role as Role,
-    );
-
-    await this.tokensService.saveRefreshToken(user.sub, tokens.refreshToken);
-    return tokens;
-  }
-
-  async createOAuthCallbackResponse(
-    user: AuthenticatedUserPayload,
-    provider: string,
-  ): Promise<OAuthCallbackDto> {
-    const tokens = await this.generateOAuthTokens(user);
-
-    return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      provider,
-      user: {
-        id: user.sub,
-        email: user.email,
-        firstName: '', // Will be populated from user service
-        lastName: '', // Will be populated from user service
-      },
-    };
   }
 }
