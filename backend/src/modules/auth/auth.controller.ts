@@ -1,7 +1,6 @@
 import { ApiTags } from '@nestjs/swagger';
 import {
   LoginDocs,
-  RegisterDocs,
   RefreshDocs,
   DebugGetAllUsersDocs,
   DebugAdminLoginDocs,
@@ -11,8 +10,6 @@ import {
 import {
   GitHubAuthDocs,
   GitHubCallbackDocs,
-  GoogleAuthDocs,
-  GoogleCallbackDocs,
   GetOAuthAccountsDocs,
   UnlinkOAuthAccountDocs,
 } from '../../common/decorators/swagger/oauth.swagger.docs';
@@ -33,6 +30,10 @@ import {
   ForbiddenException,
   Logger,
   Param,
+  NotFoundException,
+  Res,
+  Redirect,
+  Query,
 } from '@nestjs/common';
 import { ApiResponse } from '../../common/response/api-response.dto';
 import { RefreshJwtAuthGuard } from '../../common/guards/refresh-jwt-auth.guard';
@@ -47,18 +48,32 @@ import {
   ResetPasswordDto,
   CreateUserDto,
 } from '../user/dtos';
-import { AuthGuard } from '@nestjs/passport';
-import { AuthenticatedUserPayload } from '@/common/request/express.request';
+import { OAuthFactoryService } from './oauth-factory.service';
+import { OAuthUserInfo } from './dtos/oauth-user.dto';
 
 @Controller('auth')
 @ApiTags('Authentication')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
-
+  protected readonly redirectUrls = new Map<string, string>();
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UserService,
-  ) {}
+    private readonly oauthFactory: OAuthFactoryService,
+  ) {
+    this.populateRedirectUrls();
+  }
+
+  private populateRedirectUrls() {
+    this.redirectUrls.set(
+      'github',
+      `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${process.env.GITHUB_CALLBACK_URL}&scope=user:email&state=`,
+    );
+    this.redirectUrls.set(
+      'google',
+      `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${process.env.GOOGLE_CALLBACK_URL}&response_type=code&scope=openid%20email%20profile&state=`,
+    );
+  }
 
   // Public registration
   @Post('register')
@@ -214,5 +229,82 @@ export class AuthController {
       undefined,
       'OAuth account unlinked successfully',
     );
+  }
+
+  // OAuth2
+
+  @Get('login/:provider')
+  @Public()
+  @Redirect()
+  async oauthLogin(@Param('provider') provider: string) {
+    let redirectUrl = this.redirectUrls.get(provider);
+    if (!redirectUrl) {
+      throw new NotFoundException(`OAuth provider ${provider} not found`);
+    }
+    let state = Buffer.from(JSON.stringify({ provider })).toString('base64url');
+    redirectUrl += state;
+    return {
+      url: redirectUrl,
+      statusCode: 302,
+    };
+  }
+
+  @Get('callback/oauth')
+  @Public()
+  @Redirect()
+  async handleOauthCallback(
+    @Query('code') code: string,
+    @Query('state') stateParam: string,
+  ) {
+    if (!code || !stateParam) {
+      throw new UnauthorizedException('Missing code or state');
+    }
+
+    let provider: string;
+
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(stateParam, 'base64url').toString(),
+      );
+      provider = decoded.provider;
+    } catch (err) {
+      throw new UnauthorizedException('Invalid state parameter');
+    }
+
+    const service = this.oauthFactory.getOAuthService(provider);
+
+    try {
+      const oauthProfile: OAuthUserInfo =
+        await service.exchangeCodeForUser(code);
+
+      // Find or create user by OAuth profile
+      const user = await this.usersService.findOrCreateUserByOAuth(
+        oauthProfile,
+        provider,
+      );
+
+      // Generate JWT tokens for the user
+      const tokens = await this.authService.generateTokensForUser({
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+      });
+
+      // Redirect to frontend with tokens in query params
+      const redirectUrl = new URL(
+        process.env.FRONTEND_URL || 'http://localhost:3000',
+      );
+      redirectUrl.searchParams.set('access_token', tokens.accessToken);
+      redirectUrl.searchParams.set('refresh_token', tokens.refreshToken);
+      redirectUrl.searchParams.set('user_id', user.userId);
+
+      return {
+        url: redirectUrl.toString(),
+        statusCode: 302,
+      };
+    } catch (error) {
+      this.logger.error(`OAuth callback failed: ${error.message}`);
+      throw new UnauthorizedException(error.message || 'OAuth callback failed');
+    }
   }
 }

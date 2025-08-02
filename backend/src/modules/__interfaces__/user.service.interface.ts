@@ -25,4 +25,13 @@ export interface IUsersService {
   confirmEmail(token: string): Promise<void>;
   forgotPassword(email: string): Promise<void>;
   resetPassword(token: string, newPassword: string): Promise<void>;
+  findOrCreateUserByOAuth(
+    oauthProfile: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      providerId: string;
+    },
+    provider: string,
+  ): Promise<UserResponseDto>;
 }
