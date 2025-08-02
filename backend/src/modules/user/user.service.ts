@@ -180,6 +180,80 @@ export class UserService implements IUsersService {
     return this.prismaService.user.findUnique({ where: { email } });
   }
 
+  async findOrCreateUserByOAuth(
+    oauthProfile: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      providerId: string;
+    },
+    provider: string,
+  ): Promise<UserResponseDto> {
+    try {
+      // First, try to find existing user by email
+      let user = await this.findByEmail(oauthProfile.email);
+
+      if (user) {
+        // User exists, check if OAuth account is linked
+        const existingOAuthAccount =
+          await this.prismaService.oAuthAccount.findFirst({
+            where: {
+              userId: user.id,
+              provider,
+              providerAccountId: oauthProfile.providerId,
+            },
+          });
+
+        if (!existingOAuthAccount) {
+          // Link the OAuth account to existing user
+          await this.prismaService.oAuthAccount.create({
+            data: {
+              provider,
+              providerAccountId: oauthProfile.providerId,
+              userId: user.id,
+            },
+          });
+          this.logger.log(
+            `OAuth account linked to existing user: ${user.email}`,
+          );
+        }
+      } else {
+        // Create new user with OAuth data
+        const hashedPassword = await bcrypt.hash(
+          Math.random().toString(36).substring(2) + Date.now().toString(36),
+          10,
+        );
+
+        user = await this.prismaService.user.create({
+          data: {
+            email: oauthProfile.email,
+            firstName: oauthProfile.firstName,
+            lastName: oauthProfile.lastName,
+            password: hashedPassword,
+            role: Role.CONSUMER, // Default role for OAuth users
+            isEmailConfirmed: true, // OAuth users are pre-verified
+          },
+        });
+
+        // Create OAuth account link
+        await this.prismaService.oAuthAccount.create({
+          data: {
+            provider,
+            providerAccountId: oauthProfile.providerId,
+            userId: user.id,
+          },
+        });
+
+        this.logger.log(`New user created via OAuth: ${user.email}`);
+      }
+
+      return this.mapToResponse(user);
+    } catch (error) {
+      this.logger.error(`OAuth user creation/linking failed: ${error.message}`);
+      throw error;
+    }
+  }
+
   // Email confirmation
   async confirmEmail(token: string): Promise<void> {
     try {
@@ -256,77 +330,6 @@ export class UserService implements IUsersService {
       this.logger.log(`Password reset successful for user: ${user.email}`);
     } catch (error) {
       this.logger.error(`Password reset failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  // OAuth2 login/registration with pre-verified user info
-  async oauthLoginWithUserInfo(
-    provider: string,
-    oauthUserInfo: {
-      email: string;
-      firstName: string;
-      lastName: string;
-      providerId: string;
-    },
-  ): Promise<UserResponseDto> {
-    try {
-      this.logger.log(
-        `OAuth login attempt for ${provider}: ${oauthUserInfo.email}`,
-      );
-
-      // Check if user exists by email
-      let user = await this.prismaService.user.findUnique({
-        where: { email: oauthUserInfo.email },
-        include: { oauthAccounts: true },
-      });
-
-      if (!user) {
-        // Create new user with confirmed email (OAuth users are pre-verified)
-        user = await this.prismaService.user.create({
-          data: {
-            email: oauthUserInfo.email,
-            firstName: oauthUserInfo.firstName,
-            lastName: oauthUserInfo.lastName,
-            password: '', // OAuth users don't have passwords
-            role: Role.CONSUMER, // Default role for OAuth users
-            isEmailConfirmed: true, // OAuth users are pre-verified
-            oauthAccounts: {
-              create: {
-                provider,
-                providerAccountId: oauthUserInfo.providerId,
-              },
-            },
-          },
-          include: { oauthAccounts: true },
-        });
-        this.logger.log(`OAuth user created: ${user.email} via ${provider}`);
-      } else {
-        // User exists, check if they have this OAuth account
-        const existingOAuthAccount = user.oauthAccounts.find(
-          (account) =>
-            account.provider === provider &&
-            account.providerAccountId === oauthUserInfo.providerId,
-        );
-
-        if (!existingOAuthAccount) {
-          // Add new OAuth account to existing user
-          await this.prismaService.oAuthAccount.create({
-            data: {
-              provider,
-              providerAccountId: oauthUserInfo.providerId,
-              userId: user.id,
-            },
-          });
-          this.logger.log(
-            `OAuth account linked: ${user.email} via ${provider}`,
-          );
-        }
-      }
-
-      return this.mapToResponse(user);
-    } catch (error) {
-      this.logger.error(`OAuth login failed for ${provider}: ${error.message}`);
       throw error;
     }
   }

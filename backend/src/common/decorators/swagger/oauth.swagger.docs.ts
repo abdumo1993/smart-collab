@@ -1,6 +1,6 @@
 import { applyDecorators } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { OAuthCallbackDto, OAuthAccountDto } from '../../../modules/auth/dtos';
+import { OAuthAccountDto } from '../../../modules/auth/dtos';
 
 export const GitHubAuthDocs = () =>
   applyDecorators(
@@ -23,7 +23,6 @@ export const GitHubCallbackDocs = () =>
     ApiResponse({
       status: 200,
       description: 'OAuth authentication successful',
-      type: OAuthCallbackDto,
     }),
     ApiResponse({
       status: 401,
@@ -52,7 +51,6 @@ export const GoogleCallbackDocs = () =>
     ApiResponse({
       status: 200,
       description: 'OAuth authentication successful',
-      type: OAuthCallbackDto,
     }),
     ApiResponse({
       status: 401,

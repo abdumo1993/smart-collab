@@ -8,8 +8,9 @@ import { TokensService } from './tokens.service';
 import { UserModule } from '../user/user.module';
 import { SharedModule } from '../shared/shared.module';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { GitHubStrategy } from './strategies/github.strategy';
-import { GoogleStrategy } from './strategies/google.strategy';
+import { OAuthFactoryService } from './oauth-factory.service';
+import { GithubOAuthService } from './services/github-oauth.service';
+import { GoogleOAuthService } from './services/google-oauth.service';
 
 @Module({
   imports: [
@@ -25,7 +26,13 @@ import { GoogleStrategy } from './strategies/google.strategy';
     ConfigModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokensService, GitHubStrategy, GoogleStrategy],
+  providers: [
+    AuthService,
+    TokensService,
+    OAuthFactoryService,
+    GithubOAuthService,
+    GoogleOAuthService,
+  ],
   exports: [AuthService, TokensService],
 })
 export class AuthModule {}
