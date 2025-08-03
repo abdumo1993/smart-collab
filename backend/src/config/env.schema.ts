@@ -28,6 +28,16 @@ export const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string(),
   GITHUB_CALLBACK_URL: z.string(),
 
+  // GitHub App Configuration
+  GITHUB_APP_ID: z.string(),
+  GITHUB_APP_PRIVATE_KEY: z.string(),
+  GITHUB_APP_CLIENT_ID: z.string(),
+  GITHUB_APP_CLIENT_SECRET: z.string(),
+  GITHUB_APP_WEBHOOK_SECRET: z.string(),
+  GITHUB_APP_WEBHOOK_URL: z
+    .string()
+    .default('http://localhost:4000/api/git/webhooks'),
+
   // OAuth2 Configuration - Google
   GOOGLE_CLIENT_ID: z.string(),
   GOOGLE_CLIENT_SECRET: z.string(),

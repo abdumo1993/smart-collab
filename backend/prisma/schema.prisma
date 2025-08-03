@@ -35,7 +35,8 @@ model User {
   documents      Document[] // Documents owned by this user
   collaborations Collaborator[] // Documents this user collaborates on
   messages       Message[] // Messages sent by this user
-  repos          String[]
+  repositories   Repository[] // GitHub repositories connected by this user
+  githubRedirects GitHubInstallationRedirect[] // GitHub installation redirects
   // Email confirmation and password reset
   isEmailConfirmed      Boolean   @default(false)
   emailConfirmationToken String?
@@ -117,4 +118,34 @@ model OAuthAccount {
   updatedAt         DateTime @updatedAt
 
   @@unique([provider, providerAccountId])
+}
+
+model Repository {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String   // Repository name (e.g., "repo-name")
+  fullName          String   // Full repository name (e.g., "username/repo-name")
+  private           Boolean  @default(false)
+  installationId    String?  // GitHub App installation ID
+  webhookId         String?  // GitHub webhook ID
+  webhookUrl        String?  // Our webhook endpoint URL
+  webhookSecret     String?  // Secret for webhook signature verification
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, fullName])
+}
+
+model GitHubInstallationRedirect {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redirectUrl       String   // Frontend redirect URL
+  repositoryFullName String  // Repository being connected
+  state             String?  // Optional state parameter
+  createdAt         DateTime @default(now())
+  expiresAt         DateTime // Expires after 1 hour
+
+  @@unique([userId, repositoryFullName])
 }

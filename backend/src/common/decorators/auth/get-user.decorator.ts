@@ -19,8 +19,12 @@ export const GetUser = createParamDecorator(
     if (data && data in user) {
       return user[data] as string;
     }
-    // ! Remove the hack
-    user.userId = user.sub;
-    return user;
+
+    // Return user object with id property for compatibility
+    return {
+      id: user.sub,
+      email: user.email,
+      role: user.role,
+    };
   },
 );
