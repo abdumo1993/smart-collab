@@ -121,7 +121,7 @@ export class GitHubAppService {
 
       // const [, owner, repo] = match;
       // const fullName = `${owner}/${repo}`;
-      const {owner, repo, fullName} = this.extractFullName(repositoryUrl);
+      const { owner, repo, fullName } = this.extractFullName(repositoryUrl);
 
       // For now, we'll just validate the URL format and return a basic structure
       // The actual repository access will be validated after GitHub App installation
@@ -191,13 +191,60 @@ export class GitHubAppService {
   }
 
   /**
+   * Find installation by account login
+   */
+  async findInstallationByAccount(
+    accountLogin: string,
+  ): Promise<GitHubInstallation | null> {
+    const installations = await this.getAppInstallations();
+    return (
+      installations.find(
+        (installation) => installation.account.login === accountLogin,
+      ) || null
+    );
+  }
+
+  /**
+   * Check if a repository is accessible through any installation
+   * Returns the installation and repository if found
+   */
+  async findRepositoryInstallation(repositoryFullName: string): Promise<{
+    installation: GitHubInstallation;
+    repository: GitHubRepository;
+  } | null> {
+    // Extract owner from repository full name
+    const [owner] = repositoryFullName.split('/');
+    if (!owner) {
+      return null;
+    }
+
+    // Find installation for the account
+    const installation = await this.findInstallationByAccount(owner);
+    if (!installation) {
+      return null;
+    }
+
+    // Get repositories for this installation
+    const repositories = await this.getInstallationRepositories(
+      installation.id.toString(),
+    );
+
+    // Find the target repository
+    const repository = repositories.find(
+      (repo) => repo.full_name === repositoryFullName,
+    );
+
+    return repository ? { installation, repository } : null;
+  }
+
+  /**
    * Create webhook for a repository
    */
   async createWebhook(
     installationId: string,
     repositoryFullName: string,
     webhookUrl: string,
-    webhookSecret: string,
+    // webhookSecret: string, // GitHub Apps use global webhook secret
   ): Promise<GitHubWebhook> {
     const token = await this.getInstallationToken(installationId);
 
@@ -210,7 +257,7 @@ export class GitHubAppService {
         config: {
           url: webhookUrl,
           content_type: 'json',
-          secret: webhookSecret,
+          // secret: webhookSecret, // GitHub ignores this for GitHub Apps
         },
       },
       {
@@ -254,25 +301,46 @@ export class GitHubAppService {
   /**
    * Verify webhook signature
    */
-  verifyWebhookSignature(payload: string, signature: string): boolean {
-    const webhookSecret = this.configService.get<string>(
-      'GITHUB_APP_WEBHOOK_SECRET',
-    );
+  verifyWebhookSignature(
+    payload: string,
+    signature: string,
+    // webhookSecret?: string, // GitHub Apps use global webhook secret
+  ): boolean {
+    // Use global webhook secret for GitHub Apps
+    const secret = this.configService.get<string>('GITHUB_APP_WEBHOOK_SECRET');
 
-    if (!webhookSecret) {
+    if (!secret) {
       this.logger.warn('Webhook secret not configured');
       return false;
     }
 
     const crypto = require('crypto');
     const expectedSignature = `sha256=${crypto
-      .createHmac('sha256', webhookSecret)
+      .createHmac('sha256', secret)
       .update(payload)
       .digest('hex')}`;
 
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature),
+    this.logger.debug(`Signature verification:`);
+    this.logger.debug(`  Received signature: ${signature}`);
+    this.logger.debug(`  Expected signature: ${expectedSignature}`);
+    this.logger.debug(
+      `  Using secret: ${secret ? '***' + secret.slice(-4) : 'none'}`,
     );
+
+    // Use simple string comparison (case-sensitive)
+    const isValid = signature === expectedSignature;
+
+    this.logger.debug(`  Signature valid: ${isValid}`);
+
+    // If signature is invalid, also try case-insensitive comparison for debugging
+    if (!isValid) {
+      const isValidCaseInsensitive =
+        signature.toLowerCase() === expectedSignature.toLowerCase();
+      this.logger.debug(
+        `  Signature valid (case-insensitive): ${isValidCaseInsensitive}`,
+      );
+    }
+
+    return isValid;
   }
 }

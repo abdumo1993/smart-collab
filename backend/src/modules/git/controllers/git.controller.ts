@@ -97,19 +97,7 @@ export class GitController {
       initiateDto.repositoryUrl,
     );
 
-    // const { owner, repo, fullName } = this.githubAppService.extractFullName(
-    //   initiateDto.repositoryUrl,
-    // );
-    // // Extract repository full name from URL
-    // const match = initiateDto.repositoryUrl.match(
-    //   /github\.com\/([^\/]+)\/([^\/]+)/,
-    // );
-    // if (!match) {
-    //   throw new BadRequestException('Invalid GitHub repository URL');
-    // }
-    // const [, owner, repo] = match;
-    // const repositoryFullName = `${owner}/${repo}`;
-const repositoryFullName = repository.full_name as string;
+    const repositoryFullName = repository.full_name as string;
     // Save redirect URL for this user and repository
     await this.redirectService.saveRedirectUrl(
       user.id,
@@ -123,7 +111,7 @@ const repositoryFullName = repository.full_name as string;
     const state = encodeURIComponent(
       JSON.stringify({
         userId: user.id,
-        repositoryFullName: repositoryFullName, // why not use just repository
+        repositoryFullName: repositoryFullName,
         state: initiateDto.state,
       }),
     );
@@ -131,7 +119,7 @@ const repositoryFullName = repository.full_name as string;
 
     return ApiResponseDto.success(
       200,
-      { installationUrl, repositoryFullName},
+      { installationUrl, repositoryFullName },
       'Repository connection initiated',
     );
   }
@@ -201,11 +189,7 @@ const repositoryFullName = repository.full_name as string;
   ): Promise<ApiResponseDto<RepositoryResponseDto>> {
     const repository = await this.repositoryService.getRepository(user.id, id);
 
-    return ApiResponseDto.success(
-      200,
-      repository,
-      'Repository retrieved successfully',
-    );
+    return ApiResponseDto.success(200, repository);
   }
 
   @Delete('repositories/:id')
@@ -349,36 +333,54 @@ const repositoryFullName = repository.full_name as string;
     @Param('repositoryFullName') repositoryFullName: string,
   ): Promise<ApiResponseDto<any>> {
     try {
-      // Get all installations for the GitHub App
-      const installations = await this.githubAppService.getAppInstallations();
-      console.log(installations, repositoryFullName);
+      const result =
+        await this.githubAppService.findRepositoryInstallation(
+          repositoryFullName,
+        );
 
-      // Check if any installation has access to this repository
-      const installation = installations.find((inst) =>
-        inst.repositories?.some(
-          (repo) => repo.full_name === repositoryFullName,
-        ),
-      );
-
-      if (installation) {
+      if (result) {
+        console.log(
+          `Repository ${repositoryFullName} found in installation ${result.installation.id}`,
+        );
         return ApiResponseDto.success(
           200,
           {
             installed: true,
-            installationId: installation.id,
-            repositories: installation.repositories,
+            installationId: result.installation.id,
+            repository: result.repository,
+            account: result.installation.account,
           },
           'Repository is installed',
         );
       } else {
-        return ApiResponseDto.success(
-          200,
-          {
-            installed: false,
-            installations: installations.length,
-          },
-          'Repository is not installed',
-        );
+        // Extract owner to provide better error information
+        const [owner] = repositoryFullName.split('/');
+        const installation = owner
+          ? await this.githubAppService.findInstallationByAccount(owner)
+          : null;
+
+        if (!installation) {
+          return ApiResponseDto.success(
+            200,
+            {
+              installed: false,
+              reason: 'No installation found for account',
+              owner,
+            },
+            'Repository owner has no GitHub App installation',
+          );
+        } else {
+          return ApiResponseDto.success(
+            200,
+            {
+              installed: false,
+              reason: 'Repository not accessible in installation',
+              installationId: installation.id,
+              repositoryFullName,
+            },
+            'Repository is not accessible through the installation',
+          );
+        }
       }
     } catch (error) {
       return ApiResponseDto.success(

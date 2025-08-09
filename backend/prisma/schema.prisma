@@ -130,7 +130,7 @@ model Repository {
   installationId    String?  // GitHub App installation ID
   webhookId         String?  // GitHub webhook ID
   webhookUrl        String?  // Our webhook endpoint URL
-  webhookSecret     String?  // Secret for webhook signature verification
+  // webhookSecret     String?  // Secret for webhook signature verification - not needed for GitHub Apps
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -1,14 +1,15 @@
 import {
+  ExceptionFilter,
   Catch,
   ArgumentsHost,
   HttpException,
   HttpStatus,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import { Request, Response } from 'express';
 import { ApiResponse } from '../response/api-response.dto';
-import { SentryExceptionCaptured } from '@sentry/nestjs';
 
 // Type definitions for validation error handling
 interface ValidationErrorResponse {
@@ -26,7 +27,6 @@ interface ValidationError {
 
 @Catch()
 export class AllExceptionsFilter extends BaseExceptionFilter {
-  @SentryExceptionCaptured()
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();

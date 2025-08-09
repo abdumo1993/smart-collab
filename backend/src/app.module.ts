@@ -12,11 +12,9 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { UserModule } from './modules/user/user.module';
 import { dbConfig, jwtConfig, servicesConfig, validateEnv } from 'config';
-import { SentryModule } from '@sentry/nestjs/setup';
 
 @Module({
   imports: [
-    SentryModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
@@ -38,5 +36,3 @@ import { SentryModule } from '@sentry/nestjs/setup';
   providers: [AppService],
 })
 export class AppModule {}
-
-

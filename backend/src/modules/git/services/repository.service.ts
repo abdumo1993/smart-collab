@@ -8,7 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { GitHubAppService } from './github-app.service';
 import { RepositoryResponseDto } from '../dtos/repository-response.dto';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'crypto';
+// import { randomBytes } from 'crypto'; // No longer needed - GitHub Apps use global webhook secret
 
 @Injectable()
 export class RepositoryService {
@@ -63,10 +63,7 @@ export class RepositoryService {
     installationId: string,
     repositoryFullName: string,
   ): Promise<RepositoryResponseDto> {
-    // Verify installation has access to the repository
-    const installation =
-      await this.githubAppService.getInstallation(installationId);
-    // problem? why double like installation already has repositoires in it?
+    // Get repositories accessible to this installation
     const repositories =
       await this.githubAppService.getInstallationRepositories(installationId);
 
@@ -78,15 +75,15 @@ export class RepositoryService {
     }
 
     // Generate webhook secret
-    const webhookSecret = randomBytes(32).toString('hex');
-    const webhookUrl = `${this.configService.get('GITHUB_APP_WEBHOOK_URL')}/${userId}/${encodeURIComponent(repositoryFullName)}`;
+    // const webhookSecret = randomBytes(32).toString('hex');
+    const webhookUrl = `${this.configService.get('GITHUB_APP_WEBHOOK_URL')}`;
 
     // Create webhook
     const webhook = await this.githubAppService.createWebhook(
       installationId,
       repositoryFullName,
       webhookUrl,
-      webhookSecret,
+      // webhookSecret, // GitHub Apps use global webhook secret
     );
 
     // Save repository to database
@@ -99,7 +96,7 @@ export class RepositoryService {
         installationId,
         webhookId: webhook.id.toString(),
         webhookUrl,
-        webhookSecret,
+        // webhookSecret, // Not needed - GitHub Apps use global secret
       },
     });
 

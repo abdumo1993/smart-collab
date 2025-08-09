@@ -13,6 +13,7 @@ import { GitHubAppService } from '../services/github-app.service';
 import { RepositoryService } from '../services/repository.service';
 import { WebhookHandlerService } from '../services/webhook-handler.service';
 import { ApiResponse as ApiResponseDto } from '../../../common/response/api-response.dto';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('GitHub Webhooks')
 @Controller('api/git/webhooks')
@@ -23,32 +24,26 @@ export class WebhookController {
     private readonly githubAppService: GitHubAppService,
     private readonly repositoryService: RepositoryService,
     private readonly webhookHandlerService: WebhookHandlerService,
+    private readonly configService: ConfigService,
   ) {}
 
-  @Post(':userId/:repoFullName')
-  @ApiOperation({ summary: 'Repository-specific webhook endpoint' })
-  @ApiParam({ name: 'userId', description: 'User ID' })
-  @ApiParam({
-    name: 'repoFullName',
-    description: 'Repository full name (URL encoded)',
-  })
+  @Post()
+  @ApiOperation({ summary: 'Generic webhook endpoint for GitHub events' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Webhook processed successfully',
   })
-  async handleRepositoryWebhook(
-    @Param('userId') userId: string,
-    @Param('repoFullName') repoFullName: string,
+  async handleGenericWebhook(
     @Body() payload: any,
     @Headers() headers: any,
   ): Promise<ApiResponseDto<void>> {
     try {
-      // Decode repository full name
-      const decodedRepoFullName = decodeURIComponent(repoFullName);
+      this.logger.log('Received webhook event');
 
       // Verify webhook signature
       const signature = headers['x-hub-signature-256'];
       if (!signature) {
+        this.logger.warn('Missing webhook signature');
         throw new HttpException(
           'Missing webhook signature',
           HttpStatus.UNAUTHORIZED,
@@ -56,35 +51,69 @@ export class WebhookController {
       }
 
       const rawBody = JSON.stringify(payload);
-      const isValidSignature = this.githubAppService.verifyWebhookSignature(
-        rawBody,
-        signature,
+
+      // Extract repository information from payload
+      const repositoryFullName = payload.repository?.full_name;
+      if (!repositoryFullName) {
+        throw new HttpException(
+          'Repository information not found in payload',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Find repository in database
+      const repository =
+        await this.repositoryService.findRepositoryByFullName(
+          repositoryFullName,
+        );
+
+      if (!repository) {
+        this.logger.warn(
+          `Repository ${repositoryFullName} not found in database`,
+        );
+        // Still process the webhook but log the warning
+      } else {
+        this.logger.log(
+          `Found repository ${repositoryFullName} for user ${repository.userId}`,
+        );
+      }
+
+      // Verify webhook signature using global secret
+      // const webhookSecret = repository?.webhookSecret || undefined;
+      this.logger.debug(
+        `Webhook verification for ${repositoryFullName}: using global secret`,
       );
+      this.logger.debug(`Repository found: ${!!repository}`);
+      this.logger.debug(`Repository ID: ${repository?.id}`);
+
+      // TODO: Remove this bypass in production
+      let isDevelopment = this.configService.get('NODE_ENV') === 'development';
+      isDevelopment = false;
+      let isValidSignature = true;
+
+      if (!isDevelopment) {
+        isValidSignature = this.githubAppService.verifyWebhookSignature(
+          rawBody,
+          signature,
+          // webhookSecret, // GitHub Apps use global webhook secret
+        );
+      } else {
+        this.logger.warn(
+          'Skipping webhook signature verification in development',
+        );
+      }
 
       if (!isValidSignature) {
-        this.logger.error(
-          `Invalid webhook signature for repository ${decodedRepoFullName}`,
-        );
+        this.logger.error('Invalid webhook signature');
         throw new HttpException(
           'Invalid webhook signature',
           HttpStatus.UNAUTHORIZED,
         );
       }
 
-      // Get repository from database
-      const repository = await this.repositoryService.getRepositoryByFullName(
-        userId,
-        decodedRepoFullName,
-      );
-      if (!repository) {
-        this.logger.error(
-          `Repository ${decodedRepoFullName} not found for user ${userId}`,
-        );
-        throw new HttpException('Repository not found', HttpStatus.NOT_FOUND);
-      }
-
       // Get event type
       const eventType = this.webhookHandlerService.getEventType(headers);
+      this.logger.log(`Processing ${eventType} event`);
 
       // Validate payload
       if (!this.webhookHandlerService.validatePayload(payload)) {
@@ -98,7 +127,7 @@ export class WebhookController {
       await this.webhookHandlerService.handleWebhookEvent(eventType, payload);
 
       this.logger.log(
-        `Webhook processed successfully for ${decodedRepoFullName}`,
+        `Webhook processed successfully for ${repositoryFullName} (${eventType})`,
       );
 
       return ApiResponseDto.success(
@@ -116,7 +145,7 @@ export class WebhookController {
   }
 
   @Post('github')
-  @ApiOperation({ summary: 'Legacy webhook endpoint' })
+  @ApiOperation({ summary: 'Legacy webhook endpoint (deprecated)' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Webhook processed successfully',
@@ -125,81 +154,7 @@ export class WebhookController {
     @Body() payload: any,
     @Headers() headers: any,
   ): Promise<ApiResponseDto<void>> {
-    try {
-      // Verify webhook signature
-      const signature = headers['x-hub-signature-256'];
-      if (!signature) {
-        throw new HttpException(
-          'Missing webhook signature',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      const rawBody = JSON.stringify(payload);
-      const isValidSignature = this.githubAppService.verifyWebhookSignature(
-        rawBody,
-        signature,
-      );
-
-      if (!isValidSignature) {
-        this.logger.error('Invalid webhook signature for legacy endpoint');
-        throw new HttpException(
-          'Invalid webhook signature',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      // Get event type
-      const eventType = this.webhookHandlerService.getEventType(headers);
-
-      // Validate payload
-      if (!this.webhookHandlerService.validatePayload(payload)) {
-        throw new HttpException(
-          'Invalid webhook payload',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      // For legacy endpoint, we need to find the repository by full name
-      const repositoryFullName = payload.repository?.full_name;
-      if (!repositoryFullName) {
-        throw new HttpException(
-          'Repository information not found in payload',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      // Find repository in database (this is less secure but maintains backward compatibility)
-      // In production, you might want to disable this endpoint
-      const repository =
-        await this.repositoryService.findRepositoryByFullName(
-          repositoryFullName,
-        );
-      if (!repository) {
-        this.logger.warn(
-          `Repository ${repositoryFullName} not found in database`,
-        );
-        // Still process the webhook but log the warning
-      }
-
-      // Process webhook event
-      await this.webhookHandlerService.handleWebhookEvent(eventType, payload);
-
-      this.logger.log(
-        `Legacy webhook processed successfully for ${repositoryFullName}`,
-      );
-
-      return ApiResponseDto.success(
-        200,
-        undefined,
-        'Webhook processed successfully',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Legacy webhook processing error: ${error.message}`,
-        error.stack,
-      );
-      throw error;
-    }
+    // Redirect to the main webhook handler
+    return this.handleGenericWebhook(payload, headers);
   }
 }
